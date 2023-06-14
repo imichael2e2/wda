@@ -1,0 +1,33 @@
+[package]
+name = "wda"
+version = "0.1.0-beta1"
+authors = ["Michael Lee <imichael2e2@proton.me OR ...@gmail.com>"]
+edition = "2021"
+description = "Make web browser automation painless."
+repository = "http://github.com/imichael2e2/wda"
+documentation = "http://docs.rs/wda"
+license = "MIT OR GPL-3.0-or-later"
+keywords = ["automation", "webdriver", "browser"]
+categories = ["web-programming"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["firefox"]
+firefox = ["wdc/firefox"]
+chromium = ["wdc/chromium"]
+extra_auto = ["dep:image"]
+dev = ["wdc/dev"]
+
+[dependencies]
+wdc = { version = "0.1.0-beta7", features = [] }
+base64 = "0.21.0"
+libc = "0.2.142"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0.96"
+winapi = { version = "0.3.9", features = ["fileapi", "std", "impl-default", "errhandlingapi"] }
+image = { version = "0.24.6", optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "doc_cfg"]

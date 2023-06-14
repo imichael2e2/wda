@@ -1,0 +1,291 @@
+#[cfg(feature = "firefox")]
+mod gecko {
+    use wda::BasicAutomation;
+    use wda::WdaSett;
+    use wda::WebDrvAstn;
+    type DRV = wda::GeckoDriver;
+
+    const OUTPUT_FILE_PREFIX: &str = "tstfile_gecko_basic_auto";
+    fn tst_only_fname(fname: &str) -> String {
+        #[cfg(target_family = "unix")]
+        let tmp_dir = "/tmp/wdatst";
+        #[cfg(target_family = "windows")]
+        let tmp_dir = "./tsttmp";
+        // let _ = std::fs::remove_dir_all(tmp_dir); // do not unwrap
+        std::fs::create_dir_all(tmp_dir).unwrap();
+        format!("{}/{}-{}", tmp_dir, OUTPUT_FILE_PREFIX, fname)
+    }
+
+    #[test]
+    fn go_url() {
+        use BasicAutomation;
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+    }
+
+    #[test]
+    fn get_url() {
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let ret = wda.get_url().expect("go url");
+
+        assert_eq!(&ret, "about:rights");
+    }
+
+    #[test]
+    fn page_src() {
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let save_to = tst_only_fname("page_src.html");
+
+        wda.page_src(Some(&save_to)).expect("get page source..");
+
+        let src = std::fs::read_to_string(save_to).expect("read file");
+
+        // std::thread::sleep(std::time::Duration::from_secs(30));
+
+        assert_eq!(src.contains("</html>"), true);
+    }
+
+    #[test]
+    fn print_page() {
+        use std::fs::OpenOptions;
+        use std::io::Read;
+        use std::path::Path;
+
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let save_to = tst_only_fname("print_page.pdf");
+
+        wda.print_page(&save_to).expect("print page");
+
+        match Path::new(&save_to).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    assert!(false);
+                }
+                let mut f = OpenOptions::new()
+                    .read(true)
+                    .open(&save_to)
+                    .expect("open file");
+                let mut buf = [0u8; 8];
+                f.read_exact(&mut buf).expect("read io");
+                assert_eq!(&buf, b"%PDF-1.5");
+            }
+            Err(e) => {
+                dbg!(e);
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn sshot_page() {
+        use std::fs::OpenOptions;
+        use std::io::Read;
+        use std::path::Path;
+
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let save_to = tst_only_fname("sshot_page.png");
+
+        wda.sshot_page(&save_to).expect("sshot page");
+
+        match Path::new(&save_to).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    assert!(false);
+                }
+                let mut f = OpenOptions::new()
+                    .read(true)
+                    .open(&save_to)
+                    .expect("open file");
+                let mut buf = [0u8; 8];
+                f.read_exact(&mut buf).expect("read io");
+                assert_eq!(&buf, &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+            }
+            Err(e) => {
+                dbg!(e);
+                assert!(false);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "chromium")]
+mod chrom {
+    use wda::BasicAutomation;
+    use wda::WdaSett;
+    use wda::WebDrvAstn;
+    type DRV = wda::ChromeDriver;
+
+    const OUTPUT_FILE_PREFIX: &str = "tstfile_chrome_basic_auto";
+    fn tst_only_fname(fname: &str) -> String {
+        #[cfg(target_family = "unix")]
+        let tmp_dir = "/tmp/wdatst";
+        #[cfg(target_family = "windows")]
+        let tmp_dir = "./tsttmp";
+        // let _ = std::fs::remove_dir_all(tmp_dir); // do not unwrap
+        std::fs::create_dir_all(tmp_dir).unwrap();
+        format!("{}/{}-{}", tmp_dir, OUTPUT_FILE_PREFIX, fname)
+    }
+
+    #[test]
+    fn go_url() {
+        use BasicAutomation;
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+    }
+
+    #[test]
+    fn get_url() {
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let ret = wda.get_url().expect("go url");
+
+        assert_eq!(&ret, "about:rights");
+    }
+
+    #[test]
+    fn page_src() {
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let save_to = tst_only_fname("page_src.html");
+
+        wda.page_src(Some(&save_to)).expect("get page source..");
+
+        let src = std::fs::read_to_string(save_to).expect("read file");
+
+        // std::thread::sleep(std::time::Duration::from_secs(30));
+
+        assert_eq!(src.contains("html"), true);
+    }
+
+    #[test]
+    fn print_page() {
+        use std::fs::OpenOptions;
+        use std::io::Read;
+        use std::path::Path;
+
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let save_to = tst_only_fname("print_page.pdf");
+
+        wda.print_page(&save_to).expect("print page");
+
+        match Path::new(&save_to).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    assert!(false);
+                }
+                let mut f = OpenOptions::new()
+                    .read(true)
+                    .open(&save_to)
+                    .expect("open file");
+                let mut buf = [0u8; 8];
+                f.read_exact(&mut buf).expect("read io");
+                assert_eq!(&buf, b"%PDF-1.4"); // chrome use 1.4, older than ff
+            }
+            Err(e) => {
+                dbg!(e);
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    fn sshot_page() {
+        use std::fs::OpenOptions;
+        use std::io::Read;
+        use std::path::Path;
+
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+        ])
+        .expect("new wda");
+
+        wda.go_url("about:rights").expect("go url");
+
+        let save_to = tst_only_fname("sshot_page.png");
+
+        wda.sshot_page(&save_to).expect("sshot page");
+
+        match Path::new(&save_to).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    assert!(false);
+                }
+                let mut f = OpenOptions::new()
+                    .read(true)
+                    .open(&save_to)
+                    .expect("open file");
+                let mut buf = [0u8; 8];
+                f.read_exact(&mut buf).expect("read io");
+                assert_eq!(&buf, &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+            }
+            Err(e) => {
+                dbg!(e);
+                assert!(false);
+            }
+        }
+    }
+}
