@@ -1,7 +1,9 @@
 #[cfg(feature = "firefox")]
 mod gecko {
     use wda::BasicAutomation;
+    use wda::WdaError;
     use wda::WdaSett;
+    use wda::WdcError;
     use wda::WebDrvAstn;
     type DRV = wda::GeckoDriver;
 
@@ -141,6 +143,144 @@ mod gecko {
                 assert!(false);
             }
         }
+    }
+
+    #[test]
+    fn err_new_1_th1() {
+        // ensure error is predictable, and if any, cleanup is ensured as well.
+        //
+        // note that, chromedrv is more unpredictable than geckodrv, in terms of
+        // webdriver errors, thus no alike tests for chromedrv.
+
+        let may_wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
+        ]);
+
+        let mut server_port = 0u16;
+
+        match may_wda {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                WdaError::WdcNotReady(WdcError::BadDrvCmd(ref err, ref msg), p) => {
+                    let expected_err = "invalid argument";
+                    let expected_msg = "socksProxy is not a valid URL: 10.0.2.2:108xxx";
+                    if err == expected_err && msg == expected_msg {
+                        server_port = p;
+                    } else {
+                        assert!(false, "unexpected error {:?}", e);
+                    }
+                }
+                _ => assert!(false, "unexpected error {:?}", e),
+            },
+        }
+
+        let ps_out_bytes = std::process::Command::new("ps")
+            .args(["-ef"])
+            .output()
+            .expect("buggy")
+            .stdout;
+
+        let ps_out = String::from_utf8_lossy(&ps_out_bytes);
+
+        let ptn = format!(".*geckodriver.* --port {}.*", server_port);
+
+        dbg!(&ptn);
+
+        let re = regex::Regex::new(&ptn).expect("buggy");
+
+        assert_eq!(re.is_match(&ps_out), false, "zombie process found");
+    }
+
+    #[test]
+    fn err_new_1_th2() {
+        // identical to _1, simulating thread2
+
+        let may_wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
+        ]);
+
+        let mut server_port = 0u16;
+
+        match may_wda {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                WdaError::WdcNotReady(WdcError::BadDrvCmd(ref err, ref msg), p) => {
+                    let expected_err = "invalid argument";
+                    let expected_msg = "socksProxy is not a valid URL: 10.0.2.2:108xxx";
+                    if err == expected_err && msg == expected_msg {
+                        server_port = p;
+                    } else {
+                        assert!(false, "unexpected error {:?}", e);
+                    }
+                }
+                _ => assert!(false, "unexpected error {:?}", e),
+            },
+        }
+
+        let ps_out_bytes = std::process::Command::new("ps")
+            .args(["-ef"])
+            .output()
+            .expect("buggy")
+            .stdout;
+
+        let ps_out = String::from_utf8_lossy(&ps_out_bytes);
+
+        let ptn = format!(".*geckodriver.* --port {}.*", server_port);
+
+        dbg!(&ptn);
+
+        let re = regex::Regex::new(&ptn).expect("buggy");
+
+        assert_eq!(re.is_match(&ps_out), false, "zombie process found");
+    }
+
+    #[test]
+    fn err_new_1_th3() {
+        // identical to _1, simulating thread3
+
+        let may_wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::NoGui,
+            WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
+        ]);
+
+        let mut server_port = 0u16;
+
+        match may_wda {
+            Ok(_) => assert!(false),
+            Err(e) => match e {
+                WdaError::WdcNotReady(WdcError::BadDrvCmd(ref err, ref msg), p) => {
+                    let expected_err = "invalid argument";
+                    let expected_msg = "socksProxy is not a valid URL: 10.0.2.2:108xxx";
+                    if err == expected_err && msg == expected_msg {
+                        server_port = p;
+                    } else {
+                        assert!(false, "unexpected error {:?}", e);
+                    }
+                }
+                _ => assert!(false, "unexpected error {:?}", e),
+            },
+        }
+
+        let ps_out_bytes = std::process::Command::new("ps")
+            .args(["-ef"])
+            .output()
+            .expect("buggy")
+            .stdout;
+
+        let ps_out = String::from_utf8_lossy(&ps_out_bytes);
+
+        let ptn = format!(".*geckodriver.* --port {}.*", server_port);
+
+        dbg!(&ptn);
+
+        let re = regex::Regex::new(&ptn).expect("buggy");
+
+        assert_eq!(re.is_match(&ps_out), false, "zombie process found");
     }
 }
 

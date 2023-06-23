@@ -45,7 +45,7 @@ use wdc::{
     GeckoDriver,
 };
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum WdaSett<'a> {
     // prepare
     PrepareUseSocksProxy(&'a str),
@@ -251,6 +251,9 @@ impl WebDrvAstn<GeckoDriver> {
             .stderr(work_dir.zero_log(&format!("{}-err.log", &self.rend_id)));
         let chp = prog.spawn().unwrap();
 
+        // take child process
+        self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
+
         // make sure rend connected
         let mut conn_try_times = 5000u16;
         let wait_time = 1; // nanos
@@ -273,7 +276,7 @@ impl WebDrvAstn<GeckoDriver> {
             // FIXME: use macro
 
             if goon_try {
-                return Err(WdaError::WdcNotReady(wdc_err));
+                return Err(WdaError::WdcNotReady(wdc_err, self.ppick));
             }
             dbgmsg!(
                 "try {} times to enable rend '{}'",
@@ -281,9 +284,6 @@ impl WebDrvAstn<GeckoDriver> {
                 self.rend_id,
             );
         });
-
-        // take child process
-        self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
 
         Ok(())
     }
@@ -368,6 +368,9 @@ impl WebDrvAstn<ChromeDriver> {
             .stderr(work_dir.zero_log(&format!("{}-err.log", &self.rend_id)));
         let chp = prog.spawn().unwrap();
 
+        // take child process
+        self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
+
         // make sure rend connected
         let mut conn_try_times = 5000u16;
         let wait_time = 1; // nanos
@@ -390,7 +393,7 @@ impl WebDrvAstn<ChromeDriver> {
             // FIXME: use macro
 
             if goon_try {
-                return Err(WdaError::WdcNotReady(wdc_err));
+                return Err(WdaError::WdcNotReady(wdc_err, self.ppick));
             }
             dbgmsg!(
                 "try {} times to enable rend '{}'",
@@ -398,9 +401,6 @@ impl WebDrvAstn<ChromeDriver> {
                 self.rend_id,
             );
         });
-
-        // take child process
-        self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
 
         Ok(())
     }

@@ -28,7 +28,11 @@ pub enum WdaError {
     PermitWebDriver(i32),
     PlockDataCorrupt,
     WdaDataNotFound,
-    WdcNotReady(WdcError),
+    ///
+    /// Webdriver client is not ready for automation, element 0 is the original
+    /// error thrown by client, element 1 is the TCP port used by
+    /// corresponding server.
+    WdcNotReady(WdcError, u16),
     WdcFail(WdcError),
     Base64DataCorrupt(base64::DecodeSliceError),
     InternetConnection,
