@@ -48,7 +48,7 @@ use wdc::{
 #[derive(Debug, PartialEq)]
 pub enum WdaSett<'a> {
     // prepare
-    PrepareUseSocksProxy(&'a str),
+    PrepareUseSocksProxy(Cow<'a, str>),
     // drv
     DrvLogVerbose,
     // browser
@@ -65,12 +65,10 @@ pub enum WdaSett<'a> {
 struct MaySpawnedChild(Option<Arc<Mutex<Child>>>);
 impl Drop for MaySpawnedChild {
     fn drop(&mut self) {
-        run_diag!("sigkill_rend_process", {
-            if let Some(chp) = self.0.as_ref() {
-                chp.lock().unwrap().kill().expect("kill chp from drop");
-                self.0 = None;
-            }
-        });
+        if let Some(chp) = self.0.as_ref() {
+            chp.lock().unwrap().kill().expect("buggy");
+            self.0 = None;
+        }
     }
 }
 
@@ -198,8 +196,8 @@ impl WebDrvAstn<GeckoDriver> {
         Ok(wda)
     }
 
-    fn enable_rend_moz(&mut self, setts: Vec<WdaSett>) -> Result<()> {
-        let mut dl_proxy: Option<&str> = None;
+    fn enable_rend_moz<'a>(&mut self, setts: Vec<WdaSett<'a>>) -> Result<()> {
+        let mut dl_proxy: Option<Cow<'a, str>> = None;
         let mut is_drv_log_v = false;
         let mut capa = FirefoxCapa::default();
 
@@ -237,7 +235,7 @@ impl WebDrvAstn<GeckoDriver> {
         }
 
         let work_dir = &self.wdir;
-        work_dir.download(&self.rend_id, dl_proxy)?;
+        work_dir.download(&self.rend_id, dl_proxy.as_deref())?;
 
         // prepare spawn rend
         let mut prog = work_dir.rend_as_command(&self.rend_id);
@@ -325,8 +323,8 @@ impl WebDrvAstn<ChromeDriver> {
         Ok(wda)
     }
 
-    fn enable_rend_goog(&mut self, setts: Vec<WdaSett>) -> Result<()> {
-        let mut dl_proxy: Option<&str> = None;
+    fn enable_rend_goog<'a>(&mut self, setts: Vec<WdaSett<'a>>) -> Result<()> {
+        let mut dl_proxy: Option<Cow<'a, str>> = None;
         let mut is_drv_log_v = false;
         let mut capa = ChromiumCapa::default();
 
@@ -354,7 +352,7 @@ impl WebDrvAstn<ChromeDriver> {
         }
 
         let work_dir = &self.wdir;
-        work_dir.download(&self.rend_id, dl_proxy)?;
+        work_dir.download(&self.rend_id, dl_proxy.as_deref())?;
 
         // prepare spawn rend
         let mut prog = work_dir.rend_as_command(&self.rend_id);
@@ -783,8 +781,7 @@ mod conc_init_deinit {
         fn _1() {
             // -----
             let wda = WebDrvAstn::<DRV>::new(vec![
-                WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
-                // WdaSett::PrepareUseSocksProxy("127.0.0.1:10801"),
+                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
                 WdaSett::NoGui,
                 // WdaSett::DrvLogVerbose,
                 WdaSett::BrowserUrlBarPlhrName("MyEngine"),
@@ -822,8 +819,7 @@ mod conc_init_deinit {
                         .spawn(|| {
                             // -----
                             let wda = WebDrvAstn::<DRV>::new(vec![
-                                WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
-                                // WdaSett::PrepareUseSocksProxy("127.0.0.1:10801"),
+                                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
                                 WdaSett::NoGui,
                                 // WdaSett::DrvLogVerbose,
                                 WdaSett::BrowserUrlBarPlhrName("MyEngine"),
@@ -866,7 +862,7 @@ mod conc_init_deinit {
         fn _1() {
             // -----
             let wda = WebDrvAstn::<DRV>::new(vec![
-                WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
                 // WdaSett::PrepareUseSocksProxy("127.0.0.1:10801"),
                 WdaSett::NoGui,
                 // WdaSett::DrvLogVerbose,
@@ -905,8 +901,7 @@ mod conc_init_deinit {
                         .spawn(|| {
                             // -----
                             let wda = WebDrvAstn::<DRV>::new(vec![
-                                WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
-                                // WdaSett::PrepareUseSocksProxy("127.0.0.1:10801"),
+                                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
                                 WdaSett::NoGui,
                                 // WdaSett::DrvLogVerbose,
                                 WdaSett::BrowserUrlBarPlhrName("MyEngine"),

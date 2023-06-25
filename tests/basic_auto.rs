@@ -22,9 +22,9 @@ mod gecko {
     fn go_url() {
         use BasicAutomation;
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
-            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+            // WdaSett::Socks5Proxy("127.0.0.1:10801".into()),
         ])
         .expect("new wda");
 
@@ -34,9 +34,9 @@ mod gecko {
     #[test]
     fn get_url() {
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
-            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+            // WdaSett::Socks5Proxy("127.0.0.1:10801".into()),
         ])
         .expect("new wda");
 
@@ -50,7 +50,7 @@ mod gecko {
     #[test]
     fn page_src() {
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
         ])
         .expect("new wda");
@@ -75,7 +75,7 @@ mod gecko {
         use std::path::Path;
 
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
         ])
         .expect("new wda");
@@ -113,9 +113,9 @@ mod gecko {
         use std::path::Path;
 
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
-            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+            // WdaSett::Socks5Proxy("127.0.0.1:10801".into()),
         ])
         .expect("new wda");
 
@@ -153,7 +153,7 @@ mod gecko {
         // webdriver errors, thus no alike tests for chromedrv.
 
         let may_wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
             WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
         ]);
@@ -198,7 +198,7 @@ mod gecko {
         // identical to _1, simulating thread2
 
         let may_wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
             WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
         ]);
@@ -243,7 +243,7 @@ mod gecko {
         // identical to _1, simulating thread3
 
         let may_wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
             WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
         ]);
@@ -306,9 +306,9 @@ mod chrom {
     fn go_url() {
         use BasicAutomation;
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
-            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+            // WdaSett::Socks5Proxy("127.0.0.1:10801".into()),
         ])
         .expect("new wda");
 
@@ -318,9 +318,9 @@ mod chrom {
     #[test]
     fn get_url() {
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
-            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+            // WdaSett::Socks5Proxy("127.0.0.1:10801".into()),
         ])
         .expect("new wda");
 
@@ -334,7 +334,7 @@ mod chrom {
     #[test]
     fn page_src() {
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
         ])
         .expect("new wda");
@@ -359,7 +359,7 @@ mod chrom {
         use std::path::Path;
 
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
         ])
         .expect("new wda");
@@ -397,9 +397,9 @@ mod chrom {
         use std::path::Path;
 
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
-            // WdaSett::Socks5Proxy("10.0.2.2:10801"),
+            // WdaSett::Socks5Proxy("127.0.0.1:10801".into()),
         ])
         .expect("new wda");
 

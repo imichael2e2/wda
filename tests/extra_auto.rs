@@ -23,7 +23,7 @@ mod gecko {
         use std::path::Path;
 
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
         ])
         .expect("new wda");
@@ -87,7 +87,7 @@ mod chrom {
         use std::path::Path;
 
         let wda = WebDrvAstn::<DRV>::new(vec![
-            WdaSett::PrepareUseSocksProxy("10.0.2.2:10801"),
+            WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
             WdaSett::NoGui,
         ])
         .expect("new wda");
