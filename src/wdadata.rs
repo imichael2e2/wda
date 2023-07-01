@@ -13,6 +13,7 @@ use crate::error::Result;
 use crate::error::WdaError;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -20,6 +21,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
+use std::fs;
 use std::fs::create_dir_all;
 
 // lock //
@@ -99,6 +101,23 @@ mod lock {
 pub(crate) use lock::acquire as lock_acquire;
 pub(crate) use lock::release as lock_release;
 
+//
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum BrowserFamily {
+    Firefox,
+    Chromium,
+}
+
+impl BrowserFamily {
+    fn profile_prefix(&self) -> &'static str {
+        match self {
+            BrowserFamily::Firefox => "fox",
+            BrowserFamily::Chromium => "chr",
+        }
+    }
+}
+
 // WdaWorkingdir //
 
 #[derive(Debug)]
@@ -110,6 +129,7 @@ pub(super) struct WdaWorkingDir {
     lock_dir: &'static str,
     log_dir: &'static str,
     cache_dir: &'static str,
+    bprof_dir: &'static str,
 }
 
 impl WdaWorkingDir {
@@ -170,6 +190,10 @@ impl WdaWorkingDir {
 
         let mut map = HashMap::<&str, Vec<&str>>::new();
 
+        map.insert(
+        "geckodriver-v0.32.2-linux64",
+        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-linux64.tar.gz","geckodriver-v0.32.2-linux64.tar.gz","geckodriver"],
+    );
         map.insert(
         "geckodriver-v0.30.0-linux64",
         vec!["https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz","geckodriver-v0.30.0-linux64.tar.gz","geckodriver"],
@@ -326,7 +350,130 @@ impl WdaWorkingDir {
         }
     }
 
+    ///
+    /// Create a fresh browser profile(directory), and return it if successful.
+    pub(crate) fn fresh_bprof(&self, bfam: BrowserFamily) -> Result<PathBuf> {
+        // this fn has a remove_dir_all
+        let bprof_lock = self.existing_lock("bprof")?;
+
+        lock_acquire(&bprof_lock).expect("bug");
+
+        let prefix = bfam.profile_prefix();
+
+        let mut dirs = Vec::<String>::new();
+
+        match Path::new(&self.bprof_dir()).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    return Err(WdaError::BrowserProfileRootNotFound);
+                }
+            }
+            Err(_) => {
+                return Err(WdaError::Buggy);
+            }
+        }
+
+        for may_entry in std::fs::read_dir(self.bprof_dir()).expect("bug") {
+            if let Ok(entry) = may_entry {
+                let fname = entry.file_name().into_string().expect("bug");
+                if &fname[0..3] == prefix {
+                    dirs.push(fname);
+                }
+            }
+        }
+
+        let new_bpname: String;
+
+        if dirs.len() > 0 {
+            dirs.sort();
+            let lelem = dirs.last().expect("bug");
+            let npart = u16::from_str_radix(&lelem[3..], 10).expect("bug");
+            let nnpart = npart + 1;
+            new_bpname = if nnpart < 10 {
+                format!("{}0{}", prefix, nnpart)
+            } else if nnpart < 100 {
+                format!("{}{}", prefix, nnpart)
+            } else {
+                let bp_pbuf = self
+                    .home_pbuf
+                    .join(self.data_root)
+                    .join(self.sver)
+                    .join(self.bprof_dir);
+                std::fs::remove_dir_all(&bp_pbuf).expect("bug");
+                create_dir_all(&bp_pbuf).expect("bug");
+                format!("{}00", prefix)
+            };
+        } else {
+            new_bpname = format!("{}00", prefix);
+        }
+
+        let pbuf = self
+            .home_pbuf
+            .join(self.data_root)
+            .join(self.sver)
+            .join(self.bprof_dir)
+            .join(&new_bpname);
+        create_dir_all(&pbuf).expect("bug");
+
+        lock_release(&bprof_lock).expect("bug");
+
+        Ok(pbuf)
+    }
+
+    ///
+    /// Grab the most recently used browser profile(directory). In
+    /// cases where there is no existing browser profiles, `None` is returned.
+    pub(crate) fn last_bprof(&self, bfam: BrowserFamily) -> Result<Option<PathBuf>> {
+        // if prefix.len() != 3 {
+        //     return None;
+        // }
+
+        match Path::new(&self.bprof_dir()).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    return Err(WdaError::BrowserProfileRootNotFound);
+                }
+            }
+            Err(_) => {
+                return Err(WdaError::Buggy);
+            }
+        }
+
+        let prefix = bfam.profile_prefix();
+
+        let mut dirs = Vec::<OsString>::new();
+        for may_entry in fs::read_dir(self.bprof_dir()).expect("buggy") {
+            if let Ok(entry) = may_entry {
+                let fname = entry.file_name().into_string().expect("bug");
+                if &fname[0..3] == prefix {
+                    dirs.push(entry.file_name());
+                }
+            }
+        }
+        if dirs.len() > 0 {
+            dirs.sort();
+
+            Ok(Some(
+                self.home_pbuf
+                    .join(self.data_root)
+                    .join(self.sver)
+                    .join(self.bprof_dir)
+                    .join(&dirs.last().expect("bug")),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
     // private //
+
+    fn new_droot_lock(&self, lock_name: &str) -> File {
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&self.home_pbuf.join(lock_name))
+            .expect(&format!("failed to open new lock file {}", lock_name))
+    }
 
     fn new_lock_file(&self, lock_name: &str) -> File {
         OpenOptions::new()
@@ -340,7 +487,7 @@ impl WdaWorkingDir {
                     .join(self.lock_dir)
                     .join(lock_name),
             )
-            .expect("failed to open new lock file")
+            .expect(&format!("failed to open new lock file {}", lock_name))
     }
 
     fn cache_file_pbuf(&self, fname: &str) -> PathBuf {
@@ -365,6 +512,13 @@ impl WdaWorkingDir {
             .join(self.sver)
             .join(self.lock_dir)
             .join(fname)
+    }
+
+    fn bprof_dir(&self) -> PathBuf {
+        self.home_pbuf
+            .join(self.data_root)
+            .join(self.sver)
+            .join(self.bprof_dir)
     }
 }
 
@@ -504,36 +658,134 @@ fn get_home_dir() -> String {
     return "".to_owned();
 }
 
+// // a cannot-fail operation
+// fn create_wda_workdirs() -> WdaWorkingDir {
+//     let home_dir = get_home_dir();
+//     let data_root = ".wdadata";
+//     let sver = "v1"; // currently v1 structure in use
+//     let rend_dir = "rend";
+//     let lock_dir = "lock";
+//     let log_dir = "log";
+//     let cache_dir = "cache";
+//     let bprof_dir = "bprofile";
+
+//     // manually delete data_root to reset all setting
+
+//     let home_pbuf = PathBuf::new().join(&home_dir);
+
+//     create_dir_all(home_pbuf.join(data_root).join(sver)).unwrap();
+//     create_dir_all(home_pbuf.join(data_root).join(sver).join(rend_dir)).unwrap();
+//     create_dir_all(home_pbuf.join(data_root).join(sver).join(lock_dir)).unwrap();
+//     create_dir_all(home_pbuf.join(data_root).join(sver).join(cache_dir)).unwrap();
+//     create_dir_all(home_pbuf.join(data_root).join(sver).join(log_dir)).unwrap();
+//     create_dir_all(home_pbuf.join(data_root).join(sver).join(bprof_dir)).unwrap();
+
+//     WdaWorkingDir {
+//         home_pbuf,
+//         data_root,
+//         sver,
+//         rend_dir,
+//         lock_dir,
+//         log_dir,
+//         cache_dir,
+//         bprof_dir,
+//     }
+// }
+
 // a cannot-fail operation
-fn create_wda_workdirs() -> WdaWorkingDir {
-    let home_dir = get_home_dir();
-    let data_root = ".wdadata";
+fn create_wda_workdirs2(
+    reset: bool,
+    predef_home: Option<&'static str>,
+    predef_root: Option<&'static str>,
+) -> WdaWorkingDir {
+    let real_home = get_home_dir();
+
+    let home_dir = if predef_home.is_some() {
+        predef_home.unwrap()
+    } else {
+        &real_home
+    };
+
+    let data_root = if predef_root.is_some() {
+        predef_root.unwrap()
+    } else {
+        ".wda"
+    };
     let sver = "v1"; // currently v1 structure in use
     let rend_dir = "rend";
     let lock_dir = "lock";
     let log_dir = "log";
     let cache_dir = "cache";
+    let bprof_dir = "bprof";
 
     // manually delete data_root to reset all setting
 
     let home_pbuf = PathBuf::new().join(&home_dir);
 
-    create_dir_all(home_pbuf.join(data_root).join(sver)).unwrap();
-    create_dir_all(home_pbuf.join(data_root).join(sver).join(rend_dir)).unwrap();
-    create_dir_all(home_pbuf.join(data_root).join(sver).join(lock_dir)).unwrap();
-    create_dir_all(home_pbuf.join(data_root).join(sver).join(cache_dir)).unwrap();
-    create_dir_all(home_pbuf.join(data_root).join(sver).join(log_dir)).unwrap();
+    if reset {
+        if let Err(_) = fs::remove_dir_all(
+            /* double check!!! */
+            home_pbuf.join(data_root), /* double check!!! */
+        ) {}
+    }
+
+    // create itself and its all subs
+    fs::create_dir_all(home_pbuf.join(data_root).join(sver)).unwrap();
+    fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(rend_dir)).unwrap();
+    fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(lock_dir)).unwrap();
+    fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(cache_dir)).unwrap();
+    fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(log_dir)).unwrap();
+    fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(bprof_dir)).unwrap();
 
     WdaWorkingDir {
-        home_pbuf: home_pbuf,
-        data_root: data_root,
+        home_pbuf,
+        data_root,
         sver,
-        rend_dir: rend_dir,
-        lock_dir: lock_dir,
-        log_dir: log_dir,
-        cache_dir: cache_dir,
+        rend_dir,
+        lock_dir,
+        log_dir,
+        cache_dir,
+        bprof_dir,
     }
 }
+
+// ///
+// /// Prepare essential data for Wda instances.
+// ///
+// /// Typically it consists of following steps:
+// ///
+// /// 1. All well-organized directories are in place.
+// /// 2. Ensure that plock file is not corrupt.
+// /// 3. Ensure a reasonable number of Wda instances do not interfere with
+// /// each other.
+// ///
+// /// After prepared, Wda instances can be readily created, and be
+// /// multi-threadly safely used.
+// pub(crate) fn Xprepare_wdir() -> Result<WdaWorkingDir> {
+//     let wda_wdir = create_wda_workdirs();
+
+//     let droot_lock = wda_wdir.new_lock_file("wdadata");
+
+//     // ---
+//     lock_acquire(&droot_lock).unwrap();
+
+//     // for testing purpose, simulate massive tasks on exclusive occupation
+//     // sleep(Duration::from_secs(1));
+
+//     let mut plock;
+
+//     plock = "gecrend";
+//     ensure_valid_plock(&wda_wdir, plock, 4444)?;
+//     plock = "chrrend";
+//     ensure_valid_plock(&wda_wdir, plock, 9515)?;
+
+//     dbgmsg!("preparing wda essential data...done");
+
+//     lock_release(&droot_lock).unwrap();
+//     // ---
+
+//     Ok(wda_wdir)
+// }
 
 ///
 /// Prepare essential data for Wda instances.
@@ -547,10 +799,16 @@ fn create_wda_workdirs() -> WdaWorkingDir {
 ///
 /// After prepared, Wda instances can be readily created, and be
 /// multi-threadly safely used.
-pub(crate) fn prepare_wdir() -> Result<WdaWorkingDir> {
-    let wda_wdir = create_wda_workdirs();
+///
+/// if `reset` is `true`, work dir would be removed forcibly before prepare. Use with caution!
+pub(crate) fn prepare_wdir(
+    reset: bool,
+    predef_home: Option<&'static str>,
+    predef_root: Option<&'static str>,
+) -> Result<WdaWorkingDir> {
+    let wda_wdir = create_wda_workdirs2(reset, predef_home, predef_root);
 
-    let droot_lock = wda_wdir.new_lock_file("wdadata");
+    let droot_lock = wda_wdir.new_droot_lock(".wda.lock");
 
     // ---
     lock_acquire(&droot_lock).unwrap();
@@ -561,11 +819,12 @@ pub(crate) fn prepare_wdir() -> Result<WdaWorkingDir> {
     let mut plock;
 
     plock = "gecrend";
-    ensure_valid_plock(&wda_wdir, plock, 4444)?;
+    ensure_valid_plock(&wda_wdir, plock, 4445)?;
     plock = "chrrend";
-    ensure_valid_plock(&wda_wdir, plock, 9515)?;
+    ensure_valid_plock(&wda_wdir, plock, 9516)?;
 
-    dbgmsg!("preparing wda essential data...done");
+    // bprof lock
+    let _ = wda_wdir.new_lock_file("bprof");
 
     lock_release(&droot_lock).unwrap();
     // ---
@@ -601,5 +860,139 @@ fn ensure_valid_plock(wdir: &WdaWorkingDir, plock: &str, default: u16) -> Result
                 Err(WdaError::Buggy)
             }
         },
+    }
+}
+
+// unit tests //
+
+// note: these are not strictly unit ones, but integrated ones, placing them
+//       here is bc this is crate-public module
+
+#[cfg(test)]
+mod utst_singl_thread {
+    use super::*;
+
+    #[allow(non_snake_case)]
+    fn _0(
+        HOME_DIR: &'static str,
+        DATAROOT_DIR: &'static str,
+        TESTING_PREFIX: &'static str,
+        BFAM: BrowserFamily,
+    ) {
+        let wdir = prepare_wdir(
+            true, /* means delete all */
+            Some(HOME_DIR),
+            Some(DATAROOT_DIR),
+        )
+        .expect("bug");
+
+        // is empty dir
+        assert_eq!(wdir.last_bprof(BFAM).expect("bug"), None);
+
+        // make 100 fresh ones
+        for i in 0..100 {
+            let pbuf = wdir.fresh_bprof(BFAM).expect("bug");
+            let expected_pbuf = if i < 10 {
+                PathBuf::new()
+                    .join(wdir.bprof_dir())
+                    .join(format!("{}0{}", TESTING_PREFIX, i))
+            } else {
+                PathBuf::new()
+                    .join(wdir.bprof_dir())
+                    .join(format!("{}{}", TESTING_PREFIX, i))
+            };
+
+            // only predictable on single-thread env
+            assert_eq!(pbuf, expected_pbuf);
+            assert!(wdir.last_bprof(BFAM).expect("bug").is_some());
+            assert_eq!(wdir.last_bprof(BFAM).expect("bug").unwrap(), expected_pbuf);
+        }
+        assert_eq!(
+            wdir.last_bprof(BFAM).expect("bug"),
+            Some(
+                PathBuf::new()
+                    .join(wdir.bprof_dir())
+                    .join(format!("{}99", TESTING_PREFIX))
+            )
+        );
+
+        // make one more fresh, cause previous 99 removed
+        for _ in 0..1 {
+            let pbuf = wdir.fresh_bprof(BFAM).expect("bug");
+            assert_eq!(
+                pbuf,
+                PathBuf::new()
+                    .join(wdir.bprof_dir())
+                    .join(format!("{}00", TESTING_PREFIX))
+            );
+        }
+        assert_eq!(
+            wdir.last_bprof(BFAM).expect("bug"),
+            Some(
+                PathBuf::new()
+                    .join(wdir.bprof_dir())
+                    .join(format!("{}00", TESTING_PREFIX))
+            )
+        );
+    }
+
+    #[test]
+    fn _1() {
+        _0("/tmp", ".tstwda1", "fox", BrowserFamily::Firefox);
+    }
+
+    #[test]
+    fn _2() {
+        _0("/tmp", ".tstwda2", "chr", BrowserFamily::Chromium);
+    }
+}
+
+#[cfg(test)]
+mod utst_multi_thread {
+    use super::*;
+
+    #[allow(non_snake_case)]
+    fn _0(HOME_DIR: &'static str, DATAROOT_DIR: &'static str, BFAM: BrowserFamily, TIMES: usize) {
+        let wdir = prepare_wdir(false, Some(HOME_DIR), Some(DATAROOT_DIR)).expect("bug");
+
+        // could be none or some
+        let may_last_profile = wdir.last_bprof(BFAM);
+        assert!(may_last_profile.is_ok());
+        let last_profile = may_last_profile.unwrap();
+        assert!(last_profile.is_some() || last_profile.is_none());
+
+        // make N fresh ones
+        for _ in 0..TIMES {
+            let _ = wdir.fresh_bprof(BFAM).expect("bug");
+        }
+    }
+
+    #[test]
+    fn _1() {
+        // test fresh_bprof's multi-threaded safety
+
+        let wdir = prepare_wdir(
+            true, /* means delete all */
+            Some("/tmp"),
+            Some(".tstwda3"),
+        )
+        .expect("bug");
+
+        let th1 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
+        });
+        let th2 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
+        });
+
+        th1.join().unwrap();
+        th2.join().unwrap();
+
+        let last_profile = wdir.last_bprof(BrowserFamily::Firefox).expect("bug");
+        assert!(last_profile.is_some());
+        assert_eq!(
+            last_profile.unwrap(),
+            PathBuf::new().join(wdir.bprof_dir()).join("fox19") // 120-100
+        );
     }
 }

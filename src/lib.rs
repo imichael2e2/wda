@@ -29,11 +29,11 @@ pub use error::WdaError;
 
 mod wdadata;
 
-mod wda_private;
+mod wda_internal;
 
-pub use wda_private::BasicAutomation;
+pub use wda_internal::BasicAutomation;
 #[cfg(feature = "extra_auto")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "extra_auto")))]
-pub use wda_private::ExtraAutomation;
-pub use wda_private::WdaSett;
-pub use wda_private::WebDrvAstn;
+pub use wda_internal::ExtraAutomation;
+pub use wda_internal::WdaSett;
+pub use wda_internal::WebDrvAstn;

@@ -14,6 +14,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::Child;
 use std::thread::sleep;
 use std::time::Duration;
@@ -25,6 +26,7 @@ use crate::error::Result;
 use crate::error::WdaError;
 
 use crate::wdadata;
+use crate::wdadata::BrowserFamily;
 use crate::wdadata::WdaWorkingDir;
 
 use wdc::wdcmd::session::W3cCapaSetter;
@@ -56,6 +58,7 @@ pub enum WdaSett<'a> {
     Socks5Proxy(Cow<'a, str>),
     ScriptTimeout(u32),
     PageLoadTimeout(u32),
+    FreshProfile,
     // ff only
     ProxyDnsSocks5,
     BrowserUrlBarPlhrName(&'a str),
@@ -125,6 +128,7 @@ where
     fn pick_port(&mut self) -> Result<()> {
         let work_dir = &self.wdir;
 
+        // FIXME: should be inside wdadata
         let mut f = work_dir.existing_lock(&self.plock)?;
 
         // ---
@@ -168,7 +172,7 @@ impl WebDrvAstn<GeckoDriver> {
     {
         let wdir;
         run_diag!("prepare_wdir", {
-            wdir = wdadata::prepare_wdir()?;
+            wdir = wdadata::prepare_wdir(false, None, None)?;
         });
 
         let mut wda = WebDrvAstn {
@@ -178,7 +182,7 @@ impl WebDrvAstn<GeckoDriver> {
             plock: "gecrend".to_string(),
             ppick: 0u16,
             #[cfg(target_os = "linux")]
-            rend_id: "geckodriver-v0.30.0-linux64".to_string(),
+            rend_id: "geckodriver-v0.32.2-linux64".to_string(),
             #[cfg(target_os = "windows")]
             rend_id: "geckodriver-v0.30.0-win64.exe".to_string(),
             #[cfg(target_os = "macos")]
@@ -200,6 +204,7 @@ impl WebDrvAstn<GeckoDriver> {
         let mut dl_proxy: Option<Cow<'a, str>> = None;
         let mut is_drv_log_v = false;
         let mut capa = FirefoxCapa::default();
+        let mut is_fresh_profile = false;
 
         for sett in setts {
             match sett {
@@ -224,6 +229,9 @@ impl WebDrvAstn<GeckoDriver> {
                 WdaSett::ScriptTimeout(tout) => {
                     capa.set_timeouts_script(tout);
                 }
+                WdaSett::FreshProfile => {
+                    is_fresh_profile = true;
+                }
                 //
                 WdaSett::ProxyDnsSocks5 => {
                     capa.add_prefs("network.proxy.socks_remote_dns", "true");
@@ -231,10 +239,36 @@ impl WebDrvAstn<GeckoDriver> {
                 WdaSett::BrowserUrlBarPlhrName(cust_name) => {
                     capa.add_prefs("browser.urlbar.placeholderName", cust_name);
                 }
+                #[allow(unreachable_patterns)]
+                _ => {
+                    // do nothing
+                }
             }
         }
 
         let work_dir = &self.wdir;
+
+        // firefox --profile
+        let pbuf_s: String;
+        if is_fresh_profile {
+            let pbuf = work_dir.fresh_bprof(BrowserFamily::Firefox)?;
+            dbgg!(&pbuf);
+            pbuf_s = pbuf.into_os_string().into_string().expect("bug");
+        } else {
+            let pbuf: PathBuf;
+            let may_pbuf = work_dir.last_bprof(BrowserFamily::Firefox)?;
+            if may_pbuf.is_none() {
+                pbuf = work_dir.fresh_bprof(BrowserFamily::Firefox)?;
+            } else {
+                pbuf = may_pbuf.expect("bug");
+            }
+            dbgg!(&pbuf);
+            pbuf_s = pbuf.into_os_string().into_string().expect("bug");
+        }
+
+        capa.add_args("--profile");
+        capa.add_args(&pbuf_s);
+
         work_dir.download(&self.rend_id, dl_proxy.as_deref())?;
 
         // prepare spawn rend
@@ -252,7 +286,7 @@ impl WebDrvAstn<GeckoDriver> {
         // take child process
         self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
 
-        // make sure rend connected
+        // make sure rend connected and got session
         let mut conn_try_times = 5000u16;
         let wait_time = 1; // nanos
         let mut goon_try = true;
@@ -295,7 +329,7 @@ impl WebDrvAstn<ChromeDriver> {
     {
         let wdir;
         run_diag!("prepare_wdir", {
-            wdir = wdadata::prepare_wdir()?;
+            wdir = wdadata::prepare_wdir(false, None, None)?;
         });
 
         let mut wda = WebDrvAstn {
@@ -779,12 +813,17 @@ mod conc_init_deinit {
 
         #[test]
         fn _1() {
-            // -----
+            // single thread
+            let pxy = if let Ok(v) = std::env::var("SOCKS5_PROXY") {
+                v
+            } else {
+                "".to_string()
+            };
+
             let wda = WebDrvAstn::<DRV>::new(vec![
-                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
+                WdaSett::PrepareUseSocksProxy(pxy.into()),
                 WdaSett::NoGui,
-                // WdaSett::DrvLogVerbose,
-                WdaSett::BrowserUrlBarPlhrName("MyEngine"),
+                WdaSett::FreshProfile,
             ])
             .expect("new wda instance");
 
@@ -800,14 +839,14 @@ mod conc_init_deinit {
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             // this indicates rproc is actually None
-            assert_eq!(is_local_port_open(port_in_use), false);
+            assert_eq!(is_local_port_open(port_in_use), false, "{}", port_in_use);
             // -----
         }
 
         #[test]
         fn _2() {
-            // wda is being initialized by multiple threads, which means wda's workdir
-            // likely happen to encounter data race
+            // multiple threads
+
             const N_THREAD: usize = 8;
             let mut th_grp: [Option<JoinHandle<()>>; N_THREAD] =
                 [None, None, None, None, None, None, None, None];
@@ -817,12 +856,17 @@ mod conc_init_deinit {
                     thread::Builder::new()
                         .name(format!("thread{}", i))
                         .spawn(|| {
+                            let pxy = if let Ok(v) = std::env::var("SOCKS5_PROXY") {
+                                v
+                            } else {
+                                "".to_string()
+                            };
+
                             // -----
                             let wda = WebDrvAstn::<DRV>::new(vec![
-                                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
+                                WdaSett::PrepareUseSocksProxy(pxy.into()),
                                 WdaSett::NoGui,
-                                // WdaSett::DrvLogVerbose,
-                                WdaSett::BrowserUrlBarPlhrName("MyEngine"),
+                                WdaSett::FreshProfile,
                             ])
                             .expect("new wda instance");
 
@@ -838,7 +882,7 @@ mod conc_init_deinit {
                             std::thread::sleep(std::time::Duration::from_millis(500));
 
                             // this indicates rproc is actually None
-                            assert_eq!(is_local_port_open(port_in_use), false);
+                            assert_eq!(is_local_port_open(port_in_use), false, "{}", port_in_use);
                             // -----
                         })
                         .unwrap(),
@@ -860,13 +904,19 @@ mod conc_init_deinit {
 
         #[test]
         fn _1() {
+            // single thread
+
+            let pxy = if let Ok(v) = std::env::var("SOCKS5_PROXY") {
+                v
+            } else {
+                "".to_string()
+            };
+
             // -----
             let wda = WebDrvAstn::<DRV>::new(vec![
-                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
-                // WdaSett::PrepareUseSocksProxy("127.0.0.1:10801"),
+                WdaSett::PrepareUseSocksProxy(pxy.into()),
                 WdaSett::NoGui,
-                // WdaSett::DrvLogVerbose,
-                WdaSett::BrowserUrlBarPlhrName("MyEngine"),
+                WdaSett::FreshProfile,
             ])
             .expect("new wda instance");
 
@@ -882,14 +932,14 @@ mod conc_init_deinit {
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             // this indicates rproc is actually None
-            assert_eq!(is_local_port_open(port_in_use), false);
+            assert_eq!(is_local_port_open(port_in_use), false, "{}", port_in_use);
             // -----
         }
 
         #[test]
         fn _2() {
-            // wda is being initialized by multiple threads, which means wda's workdir
-            // likely happen to encounter data race
+            // multiple threads
+
             const N_THREAD: usize = 8;
             let mut th_grp: [Option<JoinHandle<()>>; N_THREAD] =
                 [None, None, None, None, None, None, None, None];
@@ -899,12 +949,16 @@ mod conc_init_deinit {
                     thread::Builder::new()
                         .name(format!("thread{}", i))
                         .spawn(|| {
+                            let pxy = if let Ok(v) = std::env::var("SOCKS5_PROXY") {
+                                v
+                            } else {
+                                "".to_string()
+                            };
                             // -----
                             let wda = WebDrvAstn::<DRV>::new(vec![
-                                WdaSett::PrepareUseSocksProxy("127.0.0.1:10801".into()),
+                                WdaSett::PrepareUseSocksProxy(pxy.into()),
                                 WdaSett::NoGui,
-                                // WdaSett::DrvLogVerbose,
-                                WdaSett::BrowserUrlBarPlhrName("MyEngine"),
+                                WdaSett::FreshProfile,
                             ])
                             .expect("new wda instance");
 
@@ -920,7 +974,7 @@ mod conc_init_deinit {
                             std::thread::sleep(std::time::Duration::from_millis(500));
 
                             // this indicates rproc is actually None
-                            assert_eq!(is_local_port_open(port_in_use), false);
+                            assert_eq!(is_local_port_open(port_in_use), false, "{}", port_in_use);
                             // -----
                         })
                         .unwrap(),
