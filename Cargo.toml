@@ -1,6 +1,6 @@
 [package]
 name = "wda"
-version = "0.1.0-beta4"
+version = "0.1.0-beta5"
 authors = ["Michael Lee <imichael2e2@proton.me/...@gmail.com>"]
 edition = "2021"
 description = "Make web browser automation painless."
@@ -20,7 +20,7 @@ extra_auto = ["dep:image"]
 dev = ["wdc/dev"]
 
 [dependencies]
-wdc = { version = "0.1.0-beta7", features = [] }
+wdc = { version = "0.1.0-beta8", features = [] }
 base64 = "0.21.0"
 libc = "0.2.142"
 serde = { version = "1.0.160", features = ["derive"] }
