@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Michael Lee <imichael2e2@proton.me OR ...@gmail.com>
+// Copyright (C) 2023 Michael Lee <imichael2e2@proton.me/...@gmail.com>
 //
 // Licensed under the MIT License <LICENSE-MIT or
 // https://opensource.org/license/mit> or the GNU General Public License,
@@ -424,10 +424,6 @@ impl WdaWorkingDir {
     /// Grab the most recently used browser profile(directory). In
     /// cases where there is no existing browser profiles, `None` is returned.
     pub(crate) fn last_bprof(&self, bfam: BrowserFamily) -> Result<Option<PathBuf>> {
-        // if prefix.len() != 3 {
-        //     return None;
-        // }
-
         match Path::new(&self.bprof_dir()).try_exists() {
             Ok(flag) => {
                 if !flag {
@@ -658,42 +654,8 @@ fn get_home_dir() -> String {
     return "".to_owned();
 }
 
-// // a cannot-fail operation
-// fn create_wda_workdirs() -> WdaWorkingDir {
-//     let home_dir = get_home_dir();
-//     let data_root = ".wdadata";
-//     let sver = "v1"; // currently v1 structure in use
-//     let rend_dir = "rend";
-//     let lock_dir = "lock";
-//     let log_dir = "log";
-//     let cache_dir = "cache";
-//     let bprof_dir = "bprofile";
-
-//     // manually delete data_root to reset all setting
-
-//     let home_pbuf = PathBuf::new().join(&home_dir);
-
-//     create_dir_all(home_pbuf.join(data_root).join(sver)).unwrap();
-//     create_dir_all(home_pbuf.join(data_root).join(sver).join(rend_dir)).unwrap();
-//     create_dir_all(home_pbuf.join(data_root).join(sver).join(lock_dir)).unwrap();
-//     create_dir_all(home_pbuf.join(data_root).join(sver).join(cache_dir)).unwrap();
-//     create_dir_all(home_pbuf.join(data_root).join(sver).join(log_dir)).unwrap();
-//     create_dir_all(home_pbuf.join(data_root).join(sver).join(bprof_dir)).unwrap();
-
-//     WdaWorkingDir {
-//         home_pbuf,
-//         data_root,
-//         sver,
-//         rend_dir,
-//         lock_dir,
-//         log_dir,
-//         cache_dir,
-//         bprof_dir,
-//     }
-// }
-
 // a cannot-fail operation
-fn create_wda_workdirs2(
+fn create_wda_workdirs(
     reset: bool,
     predef_home: Option<&'static str>,
     predef_root: Option<&'static str>,
@@ -749,44 +711,6 @@ fn create_wda_workdirs2(
     }
 }
 
-// ///
-// /// Prepare essential data for Wda instances.
-// ///
-// /// Typically it consists of following steps:
-// ///
-// /// 1. All well-organized directories are in place.
-// /// 2. Ensure that plock file is not corrupt.
-// /// 3. Ensure a reasonable number of Wda instances do not interfere with
-// /// each other.
-// ///
-// /// After prepared, Wda instances can be readily created, and be
-// /// multi-threadly safely used.
-// pub(crate) fn Xprepare_wdir() -> Result<WdaWorkingDir> {
-//     let wda_wdir = create_wda_workdirs();
-
-//     let droot_lock = wda_wdir.new_lock_file("wdadata");
-
-//     // ---
-//     lock_acquire(&droot_lock).unwrap();
-
-//     // for testing purpose, simulate massive tasks on exclusive occupation
-//     // sleep(Duration::from_secs(1));
-
-//     let mut plock;
-
-//     plock = "gecrend";
-//     ensure_valid_plock(&wda_wdir, plock, 4444)?;
-//     plock = "chrrend";
-//     ensure_valid_plock(&wda_wdir, plock, 9515)?;
-
-//     dbgmsg!("preparing wda essential data...done");
-
-//     lock_release(&droot_lock).unwrap();
-//     // ---
-
-//     Ok(wda_wdir)
-// }
-
 ///
 /// Prepare essential data for Wda instances.
 ///
@@ -800,13 +724,14 @@ fn create_wda_workdirs2(
 /// After prepared, Wda instances can be readily created, and be
 /// multi-threadly safely used.
 ///
-/// if `reset` is `true`, work dir would be removed forcibly before prepare. Use with caution!
+/// Note: if `reset` is `true`, work dir would be removed forcibly before
+/// prepare. Use with caution!
 pub(crate) fn prepare_wdir(
     reset: bool,
     predef_home: Option<&'static str>,
     predef_root: Option<&'static str>,
 ) -> Result<WdaWorkingDir> {
-    let wda_wdir = create_wda_workdirs2(reset, predef_home, predef_root);
+    let wda_wdir = create_wda_workdirs(reset, predef_home, predef_root);
 
     let droot_lock = wda_wdir.new_droot_lock(".wda.lock");
 
