@@ -28,7 +28,7 @@ use std::fs::create_dir_all;
 
 // FIXME: pub crate not good
 #[cfg(target_family = "unix")]
-pub(crate) mod lock {
+mod lock {
     use std::fs::File;
     use std::os::fd::AsRawFd;
 
@@ -338,14 +338,14 @@ impl WdaWorkingDir {
     ///
     /// note: returning `File` makes lock long lived.
     pub(crate) fn try_lock(&self, lck_name: &str) -> Result<File> {
-        let mut f = self.existing_lock(lck_name)?;
+        let f = self.existing_lock(lck_name)?;
         lock::acquire(&f).expect("bug");
 
         Ok(f)
     }
 
     pub(crate) fn try_unlock(&self, lck_name: &str) -> Result<()> {
-        let mut f = self.existing_lock(lck_name)?;
+        let f = self.existing_lock(lck_name)?;
         lock::release(&f).expect("bug");
 
         Ok(())
@@ -987,8 +987,8 @@ mod utst_multi_thread {
         assert!(last_profile.is_some() || last_profile.is_none());
 
         // make N fresh ones
-        for i in 0..TIMES {
-            let res = wdir.fresh_bprof(BFAM).expect("bug");
+        for _i in 0..TIMES {
+            let _res = wdir.fresh_bprof(BFAM).expect("bug");
             // dbg!((THREAD_ID, i, res));
         }
     }

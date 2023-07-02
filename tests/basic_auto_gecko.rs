@@ -1,9 +1,7 @@
 #[cfg(feature = "firefox")]
 mod itst {
     use wda::BasicAutomation;
-    use wda::WdaError;
     use wda::WdaSett;
-    use wda::WdcError;
     use wda::WebDrvAstn;
     type DRV = wda::GeckoDriver;
 

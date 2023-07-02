@@ -1,9 +1,7 @@
 #[cfg(feature = "chromium")]
 mod itst {
     use std::borrow::Cow;
-    use wda::WdaError;
     use wda::WdaSett;
-    use wda::WdcError;
     use wda::WebDrvAstn;
     type DRV = wda::ChromeDriver;
 

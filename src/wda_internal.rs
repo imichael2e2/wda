@@ -204,9 +204,9 @@ impl WebDrvAstn<GeckoDriver> {
             #[cfg(target_os = "linux")]
             rend_id: "geckodriver-v0.32.2-linux64".to_string(),
             #[cfg(target_os = "windows")]
-            rend_id: "geckodriver-v0.30.0-win64.exe".to_string(),
+            rend_id: "geckodriver-v0.32.2-win64.exe".to_string(),
             #[cfg(target_os = "macos")]
-            rend_id: "geckodriver-v0.30.0-macos".to_string(),
+            rend_id: "geckodriver-v0.32.2-macos".to_string(),
         };
 
         run_diag!("pick_port", {
