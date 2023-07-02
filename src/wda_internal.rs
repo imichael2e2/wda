@@ -58,7 +58,21 @@ pub enum WdaSett<'a> {
     Socks5Proxy(Cow<'a, str>),
     ScriptTimeout(u32),
     PageLoadTimeout(u32),
-    FreshProfile,
+    ///
+    /// Indicate Wda that which browser profile should be used.
+    ///
+    /// If `None`, Wda uses a freshly created one. If `Some(id)`, Wda uses
+    /// the existing one, provided it exists. If absent, Wda uses the
+    /// most recently created one that it can see at the point of time when it
+    /// initializes.
+    ///
+    /// Note: Wda currently supports 100 profiles at maximum for each browser.
+    /// Hence the corresponding id would be a two-digit string,
+    /// picked from `00` to `99` inclusively.
+    ///
+    /// Note: without this setting, one should NOT put any assumption on
+    /// the value of the given browser profile id.
+    CustomBrowserProfileId(Option<Cow<'a, str>>),
     // ff only
     ProxyDnsSocks5,
     BrowserUrlBarPlhrName(&'a str),
@@ -66,6 +80,7 @@ pub enum WdaSett<'a> {
 
 #[derive(Debug)]
 struct MaySpawnedChild(Option<Arc<Mutex<Child>>>);
+
 impl Drop for MaySpawnedChild {
     fn drop(&mut self) {
         if let Some(chp) = self.0.as_ref() {
@@ -116,6 +131,7 @@ where
     wdir: WdaWorkingDir,
     ppick: u16,
     plock: String,
+    lck_bp: String,
     rend_id: String,
     rproc: MaySpawnedChild,
 }
@@ -125,14 +141,18 @@ where
     D: CreateWebDrvClient,
     for<'de, 'c1, 'c2> D: CreateW3cSession<'de, 'c1, 'c2>,
 {
+    pub fn profile_id(&self) -> Result<&str> {
+        if self.lck_bp.len() <= 3 {
+            return Err(WdaError::Buggy);
+        }
+
+        Ok(&self.lck_bp[3..])
+    }
+
     fn pick_port(&mut self) -> Result<()> {
         let work_dir = &self.wdir;
 
-        // FIXME: should be inside wdadata
-        let mut f = work_dir.existing_lock(&self.plock)?;
-
-        // ---
-        wdadata::lock_acquire(&f).unwrap();
+        let mut f = work_dir.try_lock(&self.plock)?; // LOCK!
 
         let mut buf = [0u8; 2];
 
@@ -155,8 +175,7 @@ where
             return Err(WdaError::WdaDataNotFound);
         }
 
-        wdadata::lock_release(&f).unwrap();
-        // ---
+        work_dir.try_unlock(&self.plock)?;
 
         self.ppick = p;
 
@@ -180,6 +199,7 @@ impl WebDrvAstn<GeckoDriver> {
             rproc: MaySpawnedChild(None),
             wdc: WebDrvClient::default(), // a bare, useless client
             plock: "gecrend".to_string(),
+            lck_bp: "_".to_string(),
             ppick: 0u16,
             #[cfg(target_os = "linux")]
             rend_id: "geckodriver-v0.32.2-linux64".to_string(),
@@ -205,6 +225,8 @@ impl WebDrvAstn<GeckoDriver> {
         let mut is_drv_log_v = false;
         let mut capa = FirefoxCapa::default();
         let mut is_fresh_profile = false;
+        let mut is_last_profile = true;
+        let mut cust_profile_id: Option<String> = None;
 
         for sett in setts {
             match sett {
@@ -229,8 +251,14 @@ impl WebDrvAstn<GeckoDriver> {
                 WdaSett::ScriptTimeout(tout) => {
                     capa.set_timeouts_script(tout);
                 }
-                WdaSett::FreshProfile => {
-                    is_fresh_profile = true;
+                WdaSett::CustomBrowserProfileId(may_v) => {
+                    is_last_profile = false;
+                    if may_v.is_none() {
+                        is_fresh_profile = true;
+                    } else {
+                        let v = may_v.expect("bug");
+                        cust_profile_id = Some(v.to_string());
+                    }
                 }
                 //
                 WdaSett::ProxyDnsSocks5 => {
@@ -248,27 +276,7 @@ impl WebDrvAstn<GeckoDriver> {
 
         let work_dir = &self.wdir;
 
-        // firefox --profile
-        let pbuf_s: String;
-        if is_fresh_profile {
-            let pbuf = work_dir.fresh_bprof(BrowserFamily::Firefox)?;
-            dbgg!(&pbuf);
-            pbuf_s = pbuf.into_os_string().into_string().expect("bug");
-        } else {
-            let pbuf: PathBuf;
-            let may_pbuf = work_dir.last_bprof(BrowserFamily::Firefox)?;
-            if may_pbuf.is_none() {
-                pbuf = work_dir.fresh_bprof(BrowserFamily::Firefox)?;
-            } else {
-                pbuf = may_pbuf.expect("bug");
-            }
-            dbgg!(&pbuf);
-            pbuf_s = pbuf.into_os_string().into_string().expect("bug");
-        }
-
-        capa.add_args("--profile");
-        capa.add_args(&pbuf_s);
-
+        // download rend
         work_dir.download(&self.rend_id, dl_proxy.as_deref())?;
 
         // prepare spawn rend
@@ -285,6 +293,37 @@ impl WebDrvAstn<GeckoDriver> {
 
         // take child process
         self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
+
+        // firefox --profile
+        let bprof_pbuf: PathBuf;
+
+        if is_fresh_profile {
+            bprof_pbuf = work_dir.fresh_bprof(BrowserFamily::Firefox)?;
+            dbgg!(&bprof_pbuf);
+        } else if is_last_profile || cust_profile_id.is_none() {
+            let may_pbuf = work_dir.last_bprof(BrowserFamily::Firefox)?;
+            if may_pbuf.is_none() {
+                bprof_pbuf = work_dir.fresh_bprof(BrowserFamily::Firefox)?;
+            } else {
+                bprof_pbuf = may_pbuf.expect("bug");
+            }
+            dbgg!(&bprof_pbuf);
+        } else {
+            let cust_profile_id = cust_profile_id.expect("bug");
+            let may_pbuf = work_dir.find_bprof(BrowserFamily::Firefox, &cust_profile_id)?;
+            if may_pbuf.is_none() {
+                return Err(WdaError::ExistProfileNotFound);
+            } else {
+                bprof_pbuf = may_pbuf.expect("bug");
+            }
+        }
+
+        // lock profile in advance
+        let bprof_lock = work_dir.bprof_sub_lock(BrowserFamily::Firefox, &bprof_pbuf)?;
+        self.lck_bp = bprof_lock;
+        let bprof_s = bprof_pbuf.into_os_string().into_string().expect("bug");
+        capa.add_args("--profile");
+        capa.add_args(&bprof_s);
 
         // make sure rend connected and got session
         let mut conn_try_times = 5000u16;
@@ -337,6 +376,7 @@ impl WebDrvAstn<ChromeDriver> {
             rproc: MaySpawnedChild(None),
             wdc: WebDrvClient::default(), // a bare, useless client
             plock: "chrrend".to_string(),
+            lck_bp: "_".to_string(),
             ppick: 0u16,
             #[cfg(target_os = "linux")]
             rend_id: "chromedriver-v112-linux64".to_string(),
@@ -361,6 +401,9 @@ impl WebDrvAstn<ChromeDriver> {
         let mut dl_proxy: Option<Cow<'a, str>> = None;
         let mut is_drv_log_v = false;
         let mut capa = ChromiumCapa::default();
+        let mut is_fresh_profile = false;
+        let mut is_last_profile = true;
+        let mut cust_profile_id: Option<String> = None;
 
         for sett in setts {
             match sett {
@@ -379,6 +422,21 @@ impl WebDrvAstn<ChromeDriver> {
                     capa.set_socks_version(5);
                     capa.set_socks_proxy_owned(&hostport);
                 }
+                WdaSett::PageLoadTimeout(tout) => {
+                    capa.set_timeouts_page_load(tout);
+                }
+                WdaSett::ScriptTimeout(tout) => {
+                    capa.set_timeouts_script(tout);
+                }
+                WdaSett::CustomBrowserProfileId(may_v) => {
+                    is_last_profile = false;
+                    if may_v.is_none() {
+                        is_fresh_profile = true;
+                    } else {
+                        let v = may_v.expect("bug");
+                        cust_profile_id = Some(v.to_string());
+                    }
+                }
                 _ => {
                     // do nothing
                 }
@@ -386,6 +444,8 @@ impl WebDrvAstn<ChromeDriver> {
         }
 
         let work_dir = &self.wdir;
+
+        // download rend
         work_dir.download(&self.rend_id, dl_proxy.as_deref())?;
 
         // prepare spawn rend
@@ -402,6 +462,37 @@ impl WebDrvAstn<ChromeDriver> {
 
         // take child process
         self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
+
+        // chromium --user-data
+        let bprof_pbuf: PathBuf;
+
+        if is_fresh_profile {
+            bprof_pbuf = work_dir.fresh_bprof(BrowserFamily::Chromium)?;
+            dbgg!(&bprof_pbuf);
+        } else if is_last_profile || cust_profile_id.is_none() {
+            let may_pbuf = work_dir.last_bprof(BrowserFamily::Chromium)?;
+            if may_pbuf.is_none() {
+                bprof_pbuf = work_dir.fresh_bprof(BrowserFamily::Chromium)?;
+            } else {
+                bprof_pbuf = may_pbuf.expect("bug");
+            }
+            dbgg!(&bprof_pbuf);
+        } else {
+            let cust_profile_id = cust_profile_id.expect("bug");
+            let may_pbuf = work_dir.find_bprof(BrowserFamily::Chromium, &cust_profile_id)?;
+            if may_pbuf.is_none() {
+                return Err(WdaError::ExistProfileNotFound);
+            } else {
+                bprof_pbuf = may_pbuf.expect("bug");
+            }
+        }
+
+        // lock profile in advance
+        let bprof_lock = work_dir.bprof_sub_lock(BrowserFamily::Chromium, &bprof_pbuf)?;
+        self.lck_bp = bprof_lock;
+        let bprof_s = bprof_pbuf.into_os_string().into_string().expect("bug");
+        let arg_s = format!("--user-data-dir={}", &bprof_s);
+        capa.add_args(&arg_s);
 
         // make sure rend connected
         let mut conn_try_times = 5000u16;
@@ -458,44 +549,72 @@ where
             format!("http://{}", url)
         };
 
-        match wdc.navi_to(&url2) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.navi_to(&url2) {
             Ok(_) => Ok(()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn get_url(&self) -> Result<String> {
         let wdc = &self.wdc;
 
-        match wdc.get_url() {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.get_url() {
             Ok(url) => Ok(String::from_utf8(url).unwrap()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn page_src(&self, save_to: Option<&str>) -> Result<Option<Vec<u8>>> {
         let wdc = &self.wdc;
 
-        match wdc.page_src(save_to) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.page_src(save_to) {
             Ok(ret) => Ok(ret),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn print_page(&self, save_to: &str) -> Result<()> {
         let wdc = &self.wdc;
 
         let save_to_temp = format!("{}.b64", save_to);
-        match wdc.print_page(&save_to_temp) {
+
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.print_page(&save_to_temp) {
             Ok(_) => {
                 decode_b64_file(&save_to_temp, save_to).expect("decode file");
                 Ok(())
@@ -504,14 +623,23 @@ where
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn sshot_page(&self, save_to: &str) -> Result<()> {
         let wdc = &self.wdc;
 
         let save_to_temp = format!("{}.b64", save_to);
-        match wdc.screenshot(&save_to_temp) {
+
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.screenshot(&save_to_temp) {
             Ok(_) => {
                 decode_b64_file(&save_to_temp, save_to).expect("decode file");
                 Ok(())
@@ -520,67 +648,112 @@ where
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn sshot_elem(&self, elem_id: &str, save_to: &str) -> Result<()> {
         let wdc = &self.wdc;
 
-        match wdc.screenshot_elem(elem_id, save_to) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.screenshot_elem(elem_id, save_to) {
             Ok(_) => Ok(()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn find_elem_by_css(&self, selector: &str) -> Result<String> {
         let wdc = &self.wdc;
 
-        match wdc.find_elem_css(selector) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.find_elem_css(selector) {
             Ok(elem_id) => Ok(String::from_utf8(elem_id).unwrap()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn find_elems_by_css(&self, selector: &str) -> Result<Vec<String>> {
         let wdc = &self.wdc;
 
-        match wdc.find_elems_css(selector) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.find_elems_css(selector) {
             Ok(elem_ids) => Ok(elem_ids),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn eval(&self, script: &str, args: Vec<&str>) -> Result<String> {
         let wdc = &self.wdc;
 
-        match wdc.exec_sync(script, args) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.exec_sync(script, args) {
             Ok(eval_ret) => Ok(String::from_utf8(eval_ret).unwrap()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 
     fn eval_async(&self, script: &str, args: Vec<&str>) -> Result<String> {
         let wdc = &self.wdc;
 
-        match wdc.exec_async(script, args) {
+        // ---
+        let _lck = self.wdir.try_lock(&self.lck_bp)?;
+
+        let ret = match wdc.exec_async(script, args) {
             Ok(eval_ret) => Ok(String::from_utf8(eval_ret).unwrap()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
             }
-        }
+        };
+
+        self.wdir.try_unlock(&self.lck_bp)?;
+        // ---
+
+        ret
     }
 }
 
@@ -777,7 +950,7 @@ fn decode_b64_file(from_file: &str, to_file: &str) -> Result<()> {
             break;
         }
 
-        dbgg!(nread);
+        // dbgg!(nread);
         if let Err(e) =
             base64::engine::general_purpose::STANDARD.decode_slice(&buf_b64[0..nread], &mut buf_de)
         {
@@ -807,6 +980,7 @@ mod conc_init_deinit {
     use std::thread;
     use std::thread::JoinHandle;
 
+    #[cfg(feature = "firefox")]
     mod gecko {
         use super::*;
         type DRV = GeckoDriver;
@@ -821,17 +995,22 @@ mod conc_init_deinit {
             };
 
             let wda = WebDrvAstn::<DRV>::new(vec![
-                WdaSett::PrepareUseSocksProxy(pxy.into()),
+                WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::FreshProfile,
+                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda instance");
+
+            dbg!(&wda);
 
             assert_eq!(wda.rproc.0.is_some(), true);
 
             let port_in_use = wda.ppick;
 
             assert_eq!(is_local_port_open(port_in_use), true, "rend is up");
+
+            assert_eq!(is_bprof_lck_present(&wda), true, "lock created");
+            assert_eq!(is_bprof_present(&wda), true, "browser profile not empty");
 
             drop(wda);
 
@@ -864,9 +1043,9 @@ mod conc_init_deinit {
 
                             // -----
                             let wda = WebDrvAstn::<DRV>::new(vec![
-                                WdaSett::PrepareUseSocksProxy(pxy.into()),
+                                WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                                 WdaSett::NoGui,
-                                WdaSett::FreshProfile,
+                                WdaSett::CustomBrowserProfileId(None),
                             ])
                             .expect("new wda instance");
 
@@ -875,6 +1054,9 @@ mod conc_init_deinit {
                             let port_in_use = wda.ppick;
 
                             assert_eq!(is_local_port_open(port_in_use), true, "rend is up");
+
+                            assert_eq!(is_bprof_lck_present(&wda), true, "lock created");
+                            assert_eq!(is_bprof_present(&wda), true, "browser profile not empty");
 
                             drop(wda);
 
@@ -914,17 +1096,22 @@ mod conc_init_deinit {
 
             // -----
             let wda = WebDrvAstn::<DRV>::new(vec![
-                WdaSett::PrepareUseSocksProxy(pxy.into()),
+                WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::FreshProfile,
+                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda instance");
+
+            dbg!(&wda);
 
             assert_eq!(wda.rproc.0.is_some(), true);
 
             let port_in_use = wda.ppick;
 
             assert_eq!(is_local_port_open(port_in_use), true, "rend is up");
+
+            assert_eq!(is_bprof_lck_present(&wda), true, "lock created");
+            assert_eq!(is_bprof_present(&wda), true, "browser profile not empty");
 
             drop(wda);
 
@@ -956,9 +1143,9 @@ mod conc_init_deinit {
                             };
                             // -----
                             let wda = WebDrvAstn::<DRV>::new(vec![
-                                WdaSett::PrepareUseSocksProxy(pxy.into()),
+                                WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                                 WdaSett::NoGui,
-                                WdaSett::FreshProfile,
+                                WdaSett::CustomBrowserProfileId(None),
                             ])
                             .expect("new wda instance");
 
@@ -967,6 +1154,9 @@ mod conc_init_deinit {
                             let port_in_use = wda.ppick;
 
                             assert_eq!(is_local_port_open(port_in_use), true, "rend is up");
+
+                            assert_eq!(is_bprof_lck_present(&wda), true, "lock created");
+                            assert_eq!(is_bprof_present(&wda), true, "browser profile not empty");
 
                             drop(wda);
 
@@ -994,5 +1184,51 @@ mod conc_init_deinit {
             Ok(_) => true,
             Err(_e) => false,
         }
+    }
+
+    fn is_bprof_lck_present<D>(wda: &WebDrvAstn<D>) -> bool
+    where
+        D: CreateWebDrvClient,
+        for<'de, 'c1, 'c2> D: CreateW3cSession<'de, 'c1, 'c2>,
+    {
+        let wdir = &wda.wdir;
+        let lck_name = &wda.lck_bp;
+
+        let pbuf = wdir
+            .home_pbuf
+            .join(wdir.data_root)
+            .join(wdir.sver)
+            .join(wdir.lock_dir)
+            .join(lck_name);
+
+        let is_exist = pbuf.try_exists();
+        assert!(is_exist.is_ok());
+        let is_exist = is_exist.unwrap();
+
+        is_exist
+    }
+
+    fn is_bprof_present<D>(wda: &WebDrvAstn<D>) -> bool
+    where
+        D: CreateWebDrvClient,
+        for<'de, 'c1, 'c2> D: CreateW3cSession<'de, 'c1, 'c2>,
+    {
+        let wdir = &wda.wdir;
+        let bprof_name = &wda.lck_bp;
+
+        let pbuf = wdir
+            .home_pbuf
+            .join(wdir.data_root)
+            .join(wdir.sver)
+            .join(wdir.bprof_dir)
+            .join(bprof_name);
+
+        dbg!(&pbuf);
+
+        let is_exist = pbuf.try_exists();
+        assert!(is_exist.is_ok());
+        let is_exist = is_exist.unwrap();
+
+        is_exist
     }
 }

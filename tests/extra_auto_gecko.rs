@@ -1,5 +1,5 @@
 #[cfg(all(feature = "extra_auto", feature = "firefox"))]
-mod tst {
+mod itst {
     use wda::ExtraAutomation;
     use wda::WdaSett;
     use wda::WebDrvAstn;

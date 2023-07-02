@@ -1,5 +1,5 @@
 #[cfg(feature = "chromium")]
-mod tst {
+mod itst {
 
     use wda::BasicAutomation;
     use wda::WdaSett;
@@ -35,6 +35,7 @@ mod tst {
         let wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.into()),
             WdaSett::NoGui,
+            WdaSett::CustomBrowserProfileId(None),
         ])
         .expect("new wda");
 
@@ -47,6 +48,7 @@ mod tst {
         let wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.into()),
             WdaSett::NoGui,
+            WdaSett::CustomBrowserProfileId(None),
         ])
         .expect("new wda");
 
@@ -63,6 +65,7 @@ mod tst {
         let wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.into()),
             WdaSett::NoGui,
+            WdaSett::CustomBrowserProfileId(None),
         ])
         .expect("new wda");
 
@@ -89,6 +92,7 @@ mod tst {
         let wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.into()),
             WdaSett::NoGui,
+            WdaSett::CustomBrowserProfileId(None),
         ])
         .expect("new wda");
 
@@ -128,6 +132,7 @@ mod tst {
         let wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.into()),
             WdaSett::NoGui,
+            WdaSett::CustomBrowserProfileId(None),
         ])
         .expect("new wda");
 

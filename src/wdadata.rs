@@ -26,8 +26,9 @@ use std::fs::create_dir_all;
 
 // lock //
 
+// FIXME: pub crate not good
 #[cfg(target_family = "unix")]
-mod lock {
+pub(crate) mod lock {
     use std::fs::File;
     use std::os::fd::AsRawFd;
 
@@ -98,8 +99,10 @@ mod lock {
     }
 }
 
-pub(crate) use lock::acquire as lock_acquire;
-pub(crate) use lock::release as lock_release;
+const LCK_GECREND: &'static str = "gecrend";
+const LCK_CHRREND: &'static str = "chrrend";
+const LCK_DLREND: &'static str = "dlrend";
+const LCK_BPROF: &'static str = "bprof";
 
 //
 
@@ -110,52 +113,38 @@ pub(crate) enum BrowserFamily {
 }
 
 impl BrowserFamily {
+    ///
+    /// Prefixes are `str` with length 3.
     fn profile_prefix(&self) -> &'static str {
+        let ret;
         match self {
-            BrowserFamily::Firefox => "fox",
-            BrowserFamily::Chromium => "chr",
+            BrowserFamily::Firefox => ret = "fox",
+            BrowserFamily::Chromium => ret = "chr",
         }
+
+        if ret.len() != 3 {
+            panic!("bug");
+        }
+
+        ret
     }
 }
 
 // WdaWorkingdir //
 
 #[derive(Debug)]
-pub(super) struct WdaWorkingDir {
-    home_pbuf: PathBuf,
-    data_root: &'static str,
-    sver: &'static str, // structure version
-    rend_dir: &'static str,
-    lock_dir: &'static str,
-    log_dir: &'static str,
-    cache_dir: &'static str,
-    bprof_dir: &'static str,
+pub(crate) struct WdaWorkingDir {
+    pub(crate) home_pbuf: PathBuf,
+    pub(crate) data_root: &'static str,
+    pub(crate) sver: &'static str, // structure version
+    pub(crate) rend_dir: &'static str,
+    pub(crate) lock_dir: &'static str,
+    pub(crate) log_dir: &'static str,
+    pub(crate) cache_dir: &'static str,
+    pub(crate) bprof_dir: &'static str,
 }
 
 impl WdaWorkingDir {
-    pub(crate) fn existing_lock(&self, lock_name: &str) -> Result<File> {
-        if let Ok(flag) = Path::new(&self.lock_file_pbuf(lock_name)).try_exists() {
-            if !flag {
-                return Err(WdaError::WdaDataNotFound);
-            }
-        } else {
-            return Err(WdaError::Buggy);
-        }
-
-        Ok(OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(
-                &self
-                    .home_pbuf
-                    .join(self.data_root)
-                    .join(self.sver)
-                    .join(self.lock_dir)
-                    .join(lock_name),
-            )
-            .unwrap())
-    }
-
     pub(crate) fn zero_log(&self, log_name: &str) -> File {
         OpenOptions::new()
             .write(true)
@@ -247,10 +236,7 @@ impl WdaWorkingDir {
 
         dbgmsg!("downloading '{}'...", rend_id);
 
-        let wdadata_lock = self.new_lock_file("wdadata");
-
-        // ---
-        lock_acquire(&wdadata_lock).unwrap();
+        let _lck = self.try_lock(LCK_DLREND)?;
 
         #[allow(unused_assignments)]
         let mut operation_failed = true;
@@ -340,8 +326,7 @@ impl WdaWorkingDir {
         dbgmsg!("downloading '{}'...done", rend_id);
         operation_failed = false;
 
-        lock_release(&wdadata_lock).unwrap();
-        // ---
+        self.try_unlock(LCK_DLREND)?;
 
         if operation_failed {
             Err(WdaError::Buggy)
@@ -351,12 +336,25 @@ impl WdaWorkingDir {
     }
 
     ///
+    /// note: returning `File` makes lock long lived.
+    pub(crate) fn try_lock(&self, lck_name: &str) -> Result<File> {
+        let mut f = self.existing_lock(lck_name)?;
+        lock::acquire(&f).expect("bug");
+
+        Ok(f)
+    }
+
+    pub(crate) fn try_unlock(&self, lck_name: &str) -> Result<()> {
+        let mut f = self.existing_lock(lck_name)?;
+        lock::release(&f).expect("bug");
+
+        Ok(())
+    }
+
+    ///
     /// Create a fresh browser profile(directory), and return it if successful.
     pub(crate) fn fresh_bprof(&self, bfam: BrowserFamily) -> Result<PathBuf> {
-        // this fn has a remove_dir_all
-        let bprof_lock = self.existing_lock("bprof")?;
-
-        lock_acquire(&bprof_lock).expect("bug");
+        let _lck = self.try_lock(LCK_BPROF)?; // cannot be _, but _xxx is ok
 
         let prefix = bfam.profile_prefix();
 
@@ -414,8 +412,9 @@ impl WdaWorkingDir {
             .join(self.bprof_dir)
             .join(&new_bpname);
         create_dir_all(&pbuf).expect("bug");
+        // dbgg!((&new_bpname, &pbuf));
 
-        lock_release(&bprof_lock).expect("bug");
+        self.try_unlock(LCK_BPROF)?;
 
         Ok(pbuf)
     }
@@ -461,7 +460,97 @@ impl WdaWorkingDir {
         }
     }
 
+    pub(crate) fn find_bprof(
+        &self,
+        bfam: BrowserFamily,
+        bprof_id: &str,
+    ) -> Result<Option<PathBuf>> {
+        match Path::new(&self.bprof_dir()).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    return Err(WdaError::BrowserProfileRootNotFound);
+                }
+            }
+            Err(_) => {
+                return Err(WdaError::Buggy);
+            }
+        }
+
+        let prefix = bfam.profile_prefix();
+
+        let mut dir_found: Option<String> = None;
+
+        for may_entry in fs::read_dir(self.bprof_dir()).expect("buggy") {
+            if let Ok(entry) = may_entry {
+                let fname = entry.file_name().into_string().expect("bug");
+                if &fname[0..3] == prefix && &fname[3..] == bprof_id {
+                    // dirs.push(entry.file_name());
+                    dir_found = Some(fname);
+                }
+            }
+        }
+
+        if dir_found.is_some() {
+            let dir_found = dir_found.expect("bug");
+
+            Ok(Some(
+                self.home_pbuf
+                    .join(self.data_root)
+                    .join(self.sver)
+                    .join(self.bprof_dir)
+                    .join(&dir_found),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(crate) fn bprof_sub_lock(
+        &self,
+        bfam: BrowserFamily,
+        bprof_pbuf: &PathBuf,
+    ) -> Result<String> {
+        let lelem = bprof_pbuf.iter().last();
+        if lelem.is_none() {
+            return Err(WdaError::BrowserProfileRootNotFound);
+        }
+        let lelem = lelem.expect("bug").to_str().expect("bug");
+        if lelem.len() <= 3 {
+            return Err(WdaError::InvalidBrowserProfileSub);
+        }
+        if &lelem[0..3] != bfam.profile_prefix() {
+            return Err(WdaError::BrowserProfileSubNotFound);
+        }
+
+        let _lck = self.new_lock_file(&lelem);
+
+        Ok(lelem.to_string())
+    }
+
     // private //
+
+    fn existing_lock(&self, lock_name: &str) -> Result<File> {
+        if let Ok(flag) = Path::new(&self.lock_file_pbuf(lock_name)).try_exists() {
+            if !flag {
+                return Err(WdaError::WdaLockNotFound);
+            }
+        } else {
+            return Err(WdaError::Buggy);
+        }
+
+        Ok(OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(
+                &self
+                    .home_pbuf
+                    .join(self.data_root)
+                    .join(self.sver)
+                    .join(self.lock_dir)
+                    .join(lock_name),
+            )
+            .unwrap())
+    }
 
     fn new_droot_lock(&self, lock_name: &str) -> File {
         OpenOptions::new()
@@ -471,6 +560,7 @@ impl WdaWorkingDir {
             .expect(&format!("failed to open new lock file {}", lock_name))
     }
 
+    // FIXME: use result
     fn new_lock_file(&self, lock_name: &str) -> File {
         OpenOptions::new()
             .create(true)
@@ -736,22 +826,25 @@ pub(crate) fn prepare_wdir(
     let droot_lock = wda_wdir.new_droot_lock(".wda.lock");
 
     // ---
-    lock_acquire(&droot_lock).unwrap();
+    lock::acquire(&droot_lock).expect("bug");
 
     // for testing purpose, simulate massive tasks on exclusive occupation
     // sleep(Duration::from_secs(1));
 
     let mut plock;
 
-    plock = "gecrend";
+    plock = LCK_GECREND;
     ensure_valid_plock(&wda_wdir, plock, 4445)?;
-    plock = "chrrend";
+    plock = LCK_CHRREND;
     ensure_valid_plock(&wda_wdir, plock, 9516)?;
 
-    // bprof lock
-    let _ = wda_wdir.new_lock_file("bprof");
+    // dlrend lock
+    let _ = wda_wdir.new_lock_file(LCK_DLREND);
 
-    lock_release(&droot_lock).unwrap();
+    // bprof lock
+    let _ = wda_wdir.new_lock_file(LCK_BPROF);
+
+    lock::release(&droot_lock).expect("bug");
     // ---
 
     Ok(wda_wdir)
@@ -773,8 +866,9 @@ fn ensure_valid_plock(wdir: &WdaWorkingDir, plock: &str, default: u16) -> Result
                 Ok(())
             }
         }
+
         Err(e) => match e {
-            WdaError::WdaDataNotFound => {
+            WdaError::WdaLockNotFound => {
                 let mut f = wdir.new_lock_file(plock);
                 let port = default.to_le_bytes();
                 f.write_all(&port).unwrap();
@@ -877,7 +971,13 @@ mod utst_multi_thread {
     use super::*;
 
     #[allow(non_snake_case)]
-    fn _0(HOME_DIR: &'static str, DATAROOT_DIR: &'static str, BFAM: BrowserFamily, TIMES: usize) {
+    fn _0(
+        _THREAD_ID: &str,
+        HOME_DIR: &'static str,
+        DATAROOT_DIR: &'static str,
+        BFAM: BrowserFamily,
+        TIMES: usize,
+    ) {
         let wdir = prepare_wdir(false, Some(HOME_DIR), Some(DATAROOT_DIR)).expect("bug");
 
         // could be none or some
@@ -887,8 +987,9 @@ mod utst_multi_thread {
         assert!(last_profile.is_some() || last_profile.is_none());
 
         // make N fresh ones
-        for _ in 0..TIMES {
-            let _ = wdir.fresh_bprof(BFAM).expect("bug");
+        for i in 0..TIMES {
+            let res = wdir.fresh_bprof(BFAM).expect("bug");
+            // dbg!((THREAD_ID, i, res));
         }
     }
 
@@ -904,10 +1005,10 @@ mod utst_multi_thread {
         .expect("bug");
 
         let th1 = std::thread::spawn(|| {
-            _0("/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
+            _0("th1", "/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
         });
         let th2 = std::thread::spawn(|| {
-            _0("/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
+            _0("th2", "/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
         });
 
         th1.join().unwrap();

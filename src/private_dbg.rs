@@ -11,30 +11,30 @@
 
 macro_rules! dbgmsg {
     ($fmtstr:expr) => {
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         let dbgmsg = format!($fmtstr);
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         dbg!(dbgmsg);
     };
     ($fmtstr:expr, $($val:expr),+ $(,)?) => {
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         let dbgmsg = format!($fmtstr, $($val),+);
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         dbg!(dbgmsg);
     };
 }
 
 macro_rules! dbgg {
     () => {
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         dbg!();
     };
     ($val:expr $(,)?) => {
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         dbg!($val);
     };
     ($($val:expr),+ $(,)?) => {
-        #[cfg(feature = "devel")]
+        #[cfg(feature = "dev")]
         ($(dbg!($val)),+);
     };
 }
