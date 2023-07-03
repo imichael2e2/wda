@@ -185,13 +185,10 @@ impl WdaWorkingDir {
 
         let mut map = HashMap::<&str, Vec<&str>>::new();
 
+        // geckodriver
         map.insert(
         "geckodriver-v0.32.2-linux64",
         vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-linux64.tar.gz","geckodriver-v0.32.2-linux64.tar.gz","geckodriver"],
-    );
-        map.insert(
-        "geckodriver-v0.30.0-linux64",
-        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz","geckodriver-v0.30.0-linux64.tar.gz","geckodriver"],
     );
         map.insert(
 	    "geckodriver-v0.30.0-win64.exe",
@@ -202,9 +199,11 @@ impl WdaWorkingDir {
         ],
     );
         map.insert(
-        "geckodriver-v0.30.0-macos",
-        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-macos.tar.gz","geckodriver-v0.30.0-macos.tar.gz","geckodriver"],
-    );
+        "geckodriver-v0.32.2-macos",
+        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-macos.tar.gz","geckodriver-v0.32.2-macos.tar.gz","geckodriver"],
+	);
+
+        // chromedriver
         map.insert(
             "chromedriver-v112-linux64",
             vec![
