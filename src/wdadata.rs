@@ -26,7 +26,6 @@ use std::fs::create_dir_all;
 
 // lock //
 
-// FIXME: pub crate not good
 #[cfg(target_family = "unix")]
 mod lock {
     use std::fs::File;
@@ -42,17 +41,19 @@ mod lock {
     }
 
     pub fn acquire(lock: &File) -> Result<(), u8> {
-        flock(&lock, libc::LOCK_EX).unwrap();
+        flock(lock, libc::LOCK_EX).unwrap();
 
         Ok(())
     }
 
     pub fn release(lock: &File) -> Result<(), u8> {
-        flock(&lock, libc::LOCK_UN).unwrap();
+        flock(lock, libc::LOCK_UN).unwrap();
 
         Ok(())
     }
 }
+
+pub(crate) use lock::release as lock_release;
 
 #[cfg(target_family = "windows")]
 mod lock {
@@ -99,16 +100,18 @@ mod lock {
     }
 }
 
-const LCK_GECREND: &'static str = "gecrend";
-const LCK_CHRREND: &'static str = "chrrend";
-const LCK_DLREND: &'static str = "dlrend";
-const LCK_BPROF: &'static str = "bprof";
+const LCK_GECREND: &str = "gecrend";
+const LCK_CHRREND: &str = "chrrend";
+const LCK_DLREND: &str = "dlrend";
+const LCK_BPROF: &str = "bprof";
 
 //
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum BrowserFamily {
+    #[cfg(feature = "firefox")]
     Firefox,
+    #[cfg(feature = "chromium")]
     Chromium,
 }
 
@@ -116,11 +119,15 @@ impl BrowserFamily {
     ///
     /// Prefixes are `str` with length 3.
     fn profile_prefix(&self) -> &'static str {
+        #[allow(clippy::needless_late_init)]
         let ret;
+
         match self {
+            #[cfg(feature = "firefox")]
             BrowserFamily::Firefox => ret = "fox",
+            #[cfg(feature = "chromium")]
             BrowserFamily::Chromium => ret = "chr",
-        }
+        };
 
         if ret.len() != 3 {
             panic!("bug");
@@ -151,8 +158,7 @@ impl WdaWorkingDir {
             .create(true)
             .truncate(true)
             .open(
-                &self
-                    .home_pbuf
+                self.home_pbuf
                     .join(self.data_root)
                     .join(self.sver)
                     .join(self.log_dir)
@@ -243,9 +249,9 @@ impl WdaWorkingDir {
 
         // Download //
         let mut curl_args = vec!["--location"];
-        if dl_proxy.is_some() {
+        if let Some(v) = dl_proxy {
             curl_args.push("--socks5");
-            curl_args.push(dl_proxy.unwrap());
+            curl_args.push(v);
         }
         curl_args.push(url);
         curl_args.push("--output");
@@ -254,7 +260,7 @@ impl WdaWorkingDir {
             .into_os_string()
             .into_string()
             .unwrap();
-        curl_args.push(&dest_tar);
+        curl_args.push(dest_tar);
         let status = Command::new("curl")
             .args(curl_args)
             .stdout(self.zero_log(&format!("fetch-out.{}.log", rend_id)))
@@ -270,14 +276,14 @@ impl WdaWorkingDir {
 
         let _status = if tarfile.contains(".tar.gz") {
             Command::new("tar")
-                .args(["--extract", "--file", &dest_tar, rend_file_in_tar])
+                .args(["--extract", "--file", dest_tar, rend_file_in_tar])
                 .stdout(self.zero_log(&format!("tar-out.{}.log", rend_id)))
                 .stderr(self.zero_log(&format!("tar-err.{}.log", rend_id)))
                 .status()
                 .expect("failed to extract")
         } else if tarfile.contains(".zip") {
             Command::new("unzip")
-                .args([&dest_tar, rend_file_in_tar])
+                .args([dest_tar, rend_file_in_tar])
                 .stdout(self.zero_log(&format!("extract-out.{}.log", rend_id)))
                 .stderr(self.zero_log(&format!("extract-err.{}.log", rend_id)))
                 .status()
@@ -371,6 +377,7 @@ impl WdaWorkingDir {
             }
         }
 
+        #[allow(clippy::manual_flatten)]
         for may_entry in std::fs::read_dir(self.bprof_dir()).expect("bug") {
             if let Ok(entry) = may_entry {
                 let fname = entry.file_name().into_string().expect("bug");
@@ -380,12 +387,14 @@ impl WdaWorkingDir {
             }
         }
 
+        #[allow(clippy::needless_late_init)]
         let new_bpname: String;
 
+        #[allow(clippy::len_zero)]
         if dirs.len() > 0 {
             dirs.sort();
             let lelem = dirs.last().expect("bug");
-            let npart = u16::from_str_radix(&lelem[3..], 10).expect("bug");
+            let npart = &lelem[3..].parse::<u16>().expect("bug");
             let nnpart = npart + 1;
             new_bpname = if nnpart < 10 {
                 format!("{}0{}", prefix, nnpart)
@@ -410,7 +419,7 @@ impl WdaWorkingDir {
             .join(self.data_root)
             .join(self.sver)
             .join(self.bprof_dir)
-            .join(&new_bpname);
+            .join(new_bpname);
         create_dir_all(&pbuf).expect("bug");
         // dbgg!((&new_bpname, &pbuf));
 
@@ -437,6 +446,7 @@ impl WdaWorkingDir {
         let prefix = bfam.profile_prefix();
 
         let mut dirs = Vec::<OsString>::new();
+        #[allow(clippy::manual_flatten)]
         for may_entry in fs::read_dir(self.bprof_dir()).expect("buggy") {
             if let Ok(entry) = may_entry {
                 let fname = entry.file_name().into_string().expect("bug");
@@ -445,6 +455,8 @@ impl WdaWorkingDir {
                 }
             }
         }
+
+        #[allow(clippy::len_zero)]
         if dirs.len() > 0 {
             dirs.sort();
 
@@ -453,7 +465,7 @@ impl WdaWorkingDir {
                     .join(self.data_root)
                     .join(self.sver)
                     .join(self.bprof_dir)
-                    .join(&dirs.last().expect("bug")),
+                    .join(dirs.last().expect("bug")),
             ))
         } else {
             Ok(None)
@@ -480,36 +492,34 @@ impl WdaWorkingDir {
 
         let mut dir_found: Option<String> = None;
 
+        #[allow(clippy::manual_flatten)]
         for may_entry in fs::read_dir(self.bprof_dir()).expect("buggy") {
             if let Ok(entry) = may_entry {
                 let fname = entry.file_name().into_string().expect("bug");
                 if &fname[0..3] == prefix && &fname[3..] == bprof_id {
-                    // dirs.push(entry.file_name());
                     dir_found = Some(fname);
                 }
             }
         }
 
-        if dir_found.is_some() {
-            let dir_found = dir_found.expect("bug");
-
+        if let Some(v) = dir_found {
             Ok(Some(
                 self.home_pbuf
                     .join(self.data_root)
                     .join(self.sver)
                     .join(self.bprof_dir)
-                    .join(&dir_found),
+                    .join(v),
             ))
         } else {
             Ok(None)
         }
     }
 
-    pub(crate) fn bprof_sub_lock(
-        &self,
-        bfam: BrowserFamily,
-        bprof_pbuf: &PathBuf,
-    ) -> Result<String> {
+    ///
+    /// Get a existing lock name for browser profile.
+    ///
+    /// Note that this does NOT do the lock job.
+    pub(crate) fn bprof_sub_lock(&self, bfam: BrowserFamily, bprof_pbuf: &Path) -> Result<String> {
         let lelem = bprof_pbuf.iter().last();
         if lelem.is_none() {
             return Err(WdaError::BrowserProfileRootNotFound);
@@ -522,7 +532,7 @@ impl WdaWorkingDir {
             return Err(WdaError::BrowserProfileSubNotFound);
         }
 
-        let _lck = self.new_lock_file(&lelem);
+        let _lck = self.new_lock_file(lelem)?;
 
         Ok(lelem.to_string())
     }
@@ -542,8 +552,7 @@ impl WdaWorkingDir {
             .read(true)
             .write(true)
             .open(
-                &self
-                    .home_pbuf
+                self.home_pbuf
                     .join(self.data_root)
                     .join(self.sver)
                     .join(self.lock_dir)
@@ -552,28 +561,26 @@ impl WdaWorkingDir {
             .unwrap())
     }
 
-    fn new_droot_lock(&self, lock_name: &str) -> File {
+    fn new_droot_lock(&self, lock_name: &str) -> Result<File> {
         OpenOptions::new()
             .create(true)
             .write(true)
-            .open(&self.home_pbuf.join(lock_name))
-            .expect(&format!("failed to open new lock file {}", lock_name))
+            .open(self.home_pbuf.join(lock_name))
+            .map_err(|_| WdaError::Buggy)
     }
 
-    // FIXME: use result
-    fn new_lock_file(&self, lock_name: &str) -> File {
+    fn new_lock_file(&self, lock_name: &str) -> Result<File> {
         OpenOptions::new()
             .create(true)
             .write(true)
             .open(
-                &self
-                    .home_pbuf
+                self.home_pbuf
                     .join(self.data_root)
                     .join(self.sver)
                     .join(self.lock_dir)
                     .join(lock_name),
             )
-            .expect(&format!("failed to open new lock file {}", lock_name))
+            .map_err(|_| WdaError::Buggy)
     }
 
     fn cache_file_pbuf(&self, fname: &str) -> PathBuf {
@@ -730,7 +737,8 @@ fn get_home_dir() -> String {
             return v;
         }
     }
-    return "".to_owned();
+
+    "".to_owned()
 }
 
 #[cfg(target_family = "windows")]
@@ -741,7 +749,8 @@ fn get_home_dir() -> String {
             return v;
         }
     }
-    return "".to_owned();
+
+    "".to_owned()
 }
 
 // a cannot-fail operation
@@ -752,17 +761,15 @@ fn create_wda_workdirs(
 ) -> WdaWorkingDir {
     let real_home = get_home_dir();
 
-    let home_dir = if predef_home.is_some() {
-        predef_home.unwrap()
+    // DOUBLE CHECK!!!
+    let home_dir = if let Some(v) = predef_home {
+        v
     } else {
         &real_home
     };
 
-    let data_root = if predef_root.is_some() {
-        predef_root.unwrap()
-    } else {
-        ".wda"
-    };
+    let data_root = if let Some(v) = predef_root { v } else { ".wda" };
+
     let sver = "v1"; // currently v1 structure in use
     let rend_dir = "rend";
     let lock_dir = "lock";
@@ -772,9 +779,10 @@ fn create_wda_workdirs(
 
     // manually delete data_root to reset all setting
 
-    let home_pbuf = PathBuf::new().join(&home_dir);
+    let home_pbuf = PathBuf::new().join(home_dir);
 
     if reset {
+        #[allow(clippy::redundant_pattern_matching)]
         if let Err(_) = fs::remove_dir_all(
             /* double check!!! */
             home_pbuf.join(data_root), /* double check!!! */
@@ -823,7 +831,7 @@ pub(crate) fn prepare_wdir(
 ) -> Result<WdaWorkingDir> {
     let wda_wdir = create_wda_workdirs(reset, predef_home, predef_root);
 
-    let droot_lock = wda_wdir.new_droot_lock(".wda.lock");
+    let droot_lock = wda_wdir.new_droot_lock(".wda.lock")?;
 
     // ---
     lock::acquire(&droot_lock).expect("bug");
@@ -839,10 +847,10 @@ pub(crate) fn prepare_wdir(
     ensure_valid_plock(&wda_wdir, plock, 9516)?;
 
     // dlrend lock
-    let _ = wda_wdir.new_lock_file(LCK_DLREND);
+    let _ = wda_wdir.new_lock_file(LCK_DLREND)?;
 
     // bprof lock
-    let _ = wda_wdir.new_lock_file(LCK_BPROF);
+    let _ = wda_wdir.new_lock_file(LCK_BPROF)?;
 
     lock::release(&droot_lock).expect("bug");
     // ---
@@ -869,7 +877,7 @@ fn ensure_valid_plock(wdir: &WdaWorkingDir, plock: &str, default: u16) -> Result
 
         Err(e) => match e {
             WdaError::WdaLockNotFound => {
-                let mut f = wdir.new_lock_file(plock);
+                let mut f = wdir.new_lock_file(plock)?;
                 let port = default.to_le_bytes();
                 f.write_all(&port).unwrap();
                 Ok(())
@@ -956,12 +964,14 @@ mod utst_singl_thread {
     }
 
     #[test]
-    fn _1() {
+    #[cfg(feature = "firefox")]
+    fn fox() {
         _0("/tmp", ".tstwda1", "fox", BrowserFamily::Firefox);
     }
 
     #[test]
-    fn _2() {
+    #[cfg(feature = "chromium")]
+    fn chr() {
         _0("/tmp", ".tstwda2", "chr", BrowserFamily::Chromium);
     }
 }
@@ -994,7 +1004,8 @@ mod utst_multi_thread {
     }
 
     #[test]
-    fn _1() {
+    #[cfg(feature = "firefox")]
+    fn fox() {
         // test fresh_bprof's multi-threaded safety
 
         let wdir = prepare_wdir(
@@ -1019,6 +1030,36 @@ mod utst_multi_thread {
         assert_eq!(
             last_profile.unwrap(),
             PathBuf::new().join(wdir.bprof_dir()).join("fox19") // 120-100
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "chromium")]
+    fn chr() {
+        // test fresh_bprof's multi-threaded safety
+
+        let wdir = prepare_wdir(
+            true, /* means delete all */
+            Some("/tmp"),
+            Some(".tstwda4"),
+        )
+        .expect("bug");
+
+        let th1 = std::thread::spawn(|| {
+            _0("th1", "/tmp", ".tstwda4", BrowserFamily::Chromium, 60);
+        });
+        let th2 = std::thread::spawn(|| {
+            _0("th2", "/tmp", ".tstwda4", BrowserFamily::Chromium, 60);
+        });
+
+        th1.join().unwrap();
+        th2.join().unwrap();
+
+        let last_profile = wdir.last_bprof(BrowserFamily::Chromium).expect("bug");
+        assert!(last_profile.is_some());
+        assert_eq!(
+            last_profile.unwrap(),
+            PathBuf::new().join(wdir.bprof_dir()).join("chr19") // 120-100
         );
     }
 }

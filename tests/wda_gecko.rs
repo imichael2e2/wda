@@ -19,7 +19,6 @@ mod itst {
         let may_wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
             WdaSett::NoGui,
-            WdaSett::CustomBrowserProfileId(None),
             WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
         ]);
 
@@ -67,7 +66,6 @@ mod itst {
         let may_wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
             WdaSett::NoGui,
-            WdaSett::CustomBrowserProfileId(None),
             WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
         ]);
 
@@ -115,7 +113,6 @@ mod itst {
         let may_wda = WebDrvAstn::<DRV>::new(vec![
             WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
             WdaSett::NoGui,
-            WdaSett::CustomBrowserProfileId(None),
             WdaSett::Socks5Proxy("10.0.2.2:108xxx".into()),
         ]);
 

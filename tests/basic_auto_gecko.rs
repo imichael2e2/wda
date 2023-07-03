@@ -38,7 +38,6 @@ mod itst {
             let wda = WebDrvAstn::<DRV>::new(vec![
                 WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda");
 
@@ -56,7 +55,6 @@ mod itst {
             let wda = WebDrvAstn::<DRV>::new(vec![
                 WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda");
 
@@ -76,7 +74,6 @@ mod itst {
             let wda = WebDrvAstn::<DRV>::new(vec![
                 WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda");
 
@@ -106,7 +103,6 @@ mod itst {
             let wda = WebDrvAstn::<DRV>::new(vec![
                 WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda");
 
@@ -149,7 +145,6 @@ mod itst {
             let wda = WebDrvAstn::<DRV>::new(vec![
                 WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::CustomBrowserProfileId(None),
             ])
             .expect("new wda");
 
