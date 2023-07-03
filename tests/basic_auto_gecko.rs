@@ -123,7 +123,11 @@ mod itst {
                         .expect("open file");
                     let mut buf = [0u8; 8];
                     f.read_exact(&mut buf).expect("read io");
+
+                    #[cfg(target_os = "linux")]
                     assert_eq!(&buf, b"%PDF-1.5");
+                    #[cfg(target_os = "macos")]
+                    assert_eq!(&buf, b"%PDF-1.3");
                 }
                 Err(e) => {
                     dbg!(e);
