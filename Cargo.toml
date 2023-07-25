@@ -17,7 +17,8 @@ default = ["firefox"]
 firefox = ["wdc/firefox"]
 chromium = ["wdc/chromium"]
 extra_auto = ["dep:image"]
-dev = ["wdc/dev"]
+dev = []
+# dev = ["wdc/dev"]
 
 [dependencies]
 wdc = { version = "0.1.0-beta8", features = [] }

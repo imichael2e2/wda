@@ -67,26 +67,12 @@ pub enum WdaSett<'a> {
     ///
     /// Indicate Wda which browser profile to use.
     ///
-    /// If absent(by default), Wda uses the most recently created one
-    /// that it can see at the point of time it initializes.
+    /// Note that the ID should be a string that only consists of alphabets,
+    /// number, underscores, hyphens.
     ///
-    /// If `None`, Wda uses a freshly created one. If `Some(id)`, Wda uses
-    /// the existing one, provided it exists.
-    ///
-    ///
-    /// **Note 1**: Use `None`(i.e., creating new profiles) with caution:
-    ///
-    /// 1. The content of the browser profile varies from browser to browser,
-    ///    but the size of it is non-trivial in most cases.
-    /// 2. Wda currently supports 100 profiles at maximum for each browser
-    ///    (id is picked from `00` to `99` inclusively).
-    ///    Once reach the maximum, Wda will delete all existing profiles.
-    /// 3. Hence do NOT create new profiles unless you know what you
-    ///    are doing.
-    ///
-    /// **Note 2**: Without this setting, one should NOT put any assumption on
-    /// the value of the given browser profile id.
-    CustomBrowserProfileId(Option<Cow<'a, str>>),
+    /// Note that if this setting is not present, ID `profile-0` will be
+    /// in use.
+    BrowserProfileId(Cow<'a, str>),
     // ff only
     ProxyDnsSocks5,
     BrowserUrlBarPlhrName(&'a str),
@@ -136,12 +122,14 @@ where
     D: CreateWebDrvClient,
     for<'de, 'c1, 'c2> D: CreateW3cSession<'de, 'c1, 'c2>,
 {
+    ///
+    /// Get the ID of browser profile being used.
     pub fn profile_id(&self) -> Result<&str> {
-        if self.lck_bp.len() <= 3 {
+        if self.lck_bp.len() <= 4 {
             return Err(WdaError::Buggy);
         }
 
-        Ok(&self.lck_bp[3..])
+        Ok(&self.lck_bp[4..])
     }
 
     fn pick_port(&mut self) -> Result<()> {
@@ -177,38 +165,16 @@ where
         Ok(())
     }
 
-    fn pick_bprof(
+    fn pick_bprof<'a>(
         &self,
         bfam: BrowserFamily,
-        is_fresh_profile: bool,
-        is_last_profile: bool,
-        cust_profile_id: Option<String>,
+        bprof_id: Option<Cow<'a, str>>,
     ) -> Result<PathBuf> {
-        let bprof_pbuf: PathBuf;
-
-        if is_fresh_profile {
-            bprof_pbuf = self.wdir.fresh_bprof(bfam)?;
-            dbgg!(&bprof_pbuf);
-        } else if is_last_profile || cust_profile_id.is_none() {
-            let may_pbuf = self.wdir.last_bprof(bfam)?;
-
-            bprof_pbuf = if let Some(v) = may_pbuf {
-                v
-            } else {
-                self.wdir.fresh_bprof(bfam)?
-            };
+        if let Some(v) = bprof_id {
+            Ok(self.wdir.find_bprof_id(bfam, &v)?)
         } else {
-            let cust_profile_id = cust_profile_id.expect("bug");
-            let may_pbuf = self.wdir.find_bprof(bfam, &cust_profile_id)?;
-
-            if let Some(pbuf) = may_pbuf {
-                bprof_pbuf = pbuf;
-            } else {
-                return Err(WdaError::ExistProfileNotFound);
-            }
+            Ok(self.wdir.find_bprof_id(bfam, "profile-0")?)
         }
-
-        Ok(bprof_pbuf)
     }
 }
 
@@ -257,6 +223,7 @@ impl WebDrvAstn<GeckoDriver> {
         let mut is_fresh_profile = false;
         let mut is_last_profile = true;
         let mut cust_profile_id: Option<String> = None;
+        let mut bprof_id: Option<Cow<'a, str>> = None;
 
         for sett in setts {
             match sett {
@@ -281,14 +248,8 @@ impl WebDrvAstn<GeckoDriver> {
                 WdaSett::ScriptTimeout(tout) => {
                     capa.set_timeouts_script(tout);
                 }
-                WdaSett::CustomBrowserProfileId(may_v) => {
-                    is_last_profile = false;
-
-                    if let Some(v) = may_v {
-                        cust_profile_id = Some(v.to_string());
-                    } else {
-                        is_fresh_profile = true;
-                    }
+                WdaSett::BrowserProfileId(v) => {
+                    bprof_id = Some(v);
                 }
                 //
                 WdaSett::ProxyDnsSocks5 => {
@@ -325,12 +286,7 @@ impl WebDrvAstn<GeckoDriver> {
         self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
 
         // firefox --profile
-        let bprof_pbuf: PathBuf = self.pick_bprof(
-            BrowserFamily::Firefox,
-            is_fresh_profile,
-            is_last_profile,
-            cust_profile_id,
-        )?;
+        let bprof_pbuf: PathBuf = self.pick_bprof(BrowserFamily::Firefox, bprof_id)?;
 
         // lock profile in advance
         let bprof_lock = work_dir.bprof_sub_lock(BrowserFamily::Firefox, &bprof_pbuf)?;
@@ -395,11 +351,11 @@ impl WebDrvAstn<ChromeDriver> {
             lck_bp: "_".to_string(),
             ppick: 0u16,
             #[cfg(target_os = "linux")]
-            rend_id: "chromedriver-v112-linux64".to_string(),
+            rend_id: "chromedriver-v114-linux64".to_string(),
             #[cfg(target_os = "windows")]
-            rend_id: "chromedriver-v112-win32.exe".to_string(),
+            rend_id: "chromedriver-v114-win32.exe".to_string(),
             #[cfg(target_os = "macos")]
-            rend_id: "chromedriver-v112-mac64".to_string(),
+            rend_id: "chromedriver-v114-mac64".to_string(),
             bp_guard: None,
         };
 
@@ -421,6 +377,7 @@ impl WebDrvAstn<ChromeDriver> {
         let mut is_fresh_profile = false;
         let mut is_last_profile = true;
         let mut cust_profile_id: Option<String> = None;
+        let mut bprof_id: Option<Cow<'a, str>> = None;
 
         for sett in setts {
             match sett {
@@ -445,14 +402,8 @@ impl WebDrvAstn<ChromeDriver> {
                 WdaSett::ScriptTimeout(tout) => {
                     capa.set_timeouts_script(tout);
                 }
-                WdaSett::CustomBrowserProfileId(may_v) => {
-                    is_last_profile = false;
-
-                    if let Some(v) = may_v {
-                        cust_profile_id = Some(v.to_string());
-                    } else {
-                        is_fresh_profile = true;
-                    }
+                WdaSett::BrowserProfileId(v) => {
+                    bprof_id = Some(v);
                 }
                 _ => {
                     // do nothing
@@ -481,12 +432,7 @@ impl WebDrvAstn<ChromeDriver> {
         self.rproc = MaySpawnedChild(Some(Arc::new(Mutex::new(chp))));
 
         // chromium --user-data
-        let bprof_pbuf: PathBuf = self.pick_bprof(
-            BrowserFamily::Chromium,
-            is_fresh_profile,
-            is_last_profile,
-            cust_profile_id,
-        )?;
+        let bprof_pbuf: PathBuf = self.pick_bprof(BrowserFamily::Chromium, bprof_id)?;
 
         // lock profile in advance
         let bprof_lock = work_dir.bprof_sub_lock(BrowserFamily::Chromium, &bprof_pbuf)?;

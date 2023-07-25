@@ -205,27 +205,27 @@ impl WdaWorkingDir {
 
         // chromedriver
         map.insert(
-            "chromedriver-v112-linux64",
+            "chromedriver-v114-linux64",
             vec![
-            "https://chromedriver.storage.googleapis.com/112.0.5615.49/chromedriver_linux64.zip"
+            "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip"
                 ,
-            "chromedriver-v112-linux64.zip",
+            "chromedriver-v114-linux64.zip",
             "chromedriver",
         ],
         );
         map.insert(
-            "chromedriver-v112-win32.exe",
+            "chromedriver-v114-win32.exe",
             vec![
-                "https://chromedriver.storage.googleapis.com/112.0.5615.49/chromedriver_win32.zip",
+                "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip",
                 "chromedriver-v112-win32.zip",
                 "chromedriver.exe",
             ],
         );
         map.insert(
-            "chromedriver-v112-mac64",
+            "chromedriver-v114-mac64",
             vec![
-                "https://chromedriver.storage.googleapis.com/112.0.5615.49/chromedriver_mac64.zip",
-                "chromedriver-v112-mac64.zip",
+                "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip",
+                "chromedriver-v114-mac64.zip",
                 "chromedriver",
             ],
         );
@@ -357,168 +357,42 @@ impl WdaWorkingDir {
     }
 
     ///
-    /// Create a fresh browser profile(directory), and return it if successful.
-    pub(crate) fn fresh_bprof(&self, bfam: BrowserFamily) -> Result<PathBuf> {
-        let _lck = self.try_lock(LCK_BPROF)?; // cannot be _, but _xxx is ok
+    /// Get `PathBuf` for profile ID, create one if not exist.
+    ///
+    /// Note that ID should be a string consisting of alphabets, numbers,
+    /// underscores, hypophens(WIP).
+    pub(crate) fn find_bprof_id(&self, bfam: BrowserFamily, bprof_id: &str) -> Result<PathBuf> {
+        self.ensure_prof_dir_exist()?;
 
         let prefix = bfam.profile_prefix();
+        let expected_bprof_id = format!("{prefix}_{bprof_id}");
 
-        let mut dirs = Vec::<String>::new();
-
-        match Path::new(&self.bprof_dir()).try_exists() {
-            Ok(flag) => {
-                if !flag {
-                    return Err(WdaError::BrowserProfileRootNotFound);
-                }
-            }
-            Err(_) => {
-                return Err(WdaError::Buggy);
-            }
-        }
-
-        #[allow(clippy::manual_flatten)]
-        for may_entry in std::fs::read_dir(self.bprof_dir()).expect("bug") {
+        let mut is_exist = false;
+        for may_entry in fs::read_dir(self.bprof_dir()).expect("bug") {
             if let Ok(entry) = may_entry {
                 let fname = entry.file_name().into_string().expect("bug");
-                if &fname[0..3] == prefix {
-                    dirs.push(fname);
+                if fname == expected_bprof_id {
+                    is_exist = true;
+                    break;
                 }
             }
         }
 
-        #[allow(clippy::needless_late_init)]
-        let new_bpname: String;
+        let pbuf = self.pbuf_bprof_id(bfam, bprof_id);
 
-        #[allow(clippy::len_zero)]
-        if dirs.len() > 0 {
-            dirs.sort();
-            let lelem = dirs.last().expect("bug");
-            let npart = &lelem[3..].parse::<u16>().expect("bug");
-            let nnpart = npart + 1;
-            new_bpname = if nnpart < 10 {
-                format!("{}0{}", prefix, nnpart)
-            } else if nnpart < 100 {
-                format!("{}{}", prefix, nnpart)
-            } else {
-                let bp_pbuf = self
-                    .home_pbuf
-                    .join(self.data_root)
-                    .join(self.sver)
-                    .join(self.bprof_dir);
-                std::fs::remove_dir_all(&bp_pbuf).expect("bug");
-                create_dir_all(&bp_pbuf).expect("bug");
-                format!("{}00", prefix)
-            };
-        } else {
-            new_bpname = format!("{}00", prefix);
+        if !is_exist {
+            create_dir_all(pbuf.clone()).expect("bug");
         }
-
-        let pbuf = self
-            .home_pbuf
-            .join(self.data_root)
-            .join(self.sver)
-            .join(self.bprof_dir)
-            .join(new_bpname);
-        create_dir_all(&pbuf).expect("bug");
-        // dbgg!((&new_bpname, &pbuf));
-
-        self.try_unlock(LCK_BPROF)?;
 
         Ok(pbuf)
     }
 
     ///
-    /// Grab the most recently used browser profile(directory). In
-    /// cases where there is no existing browser profiles, `None` is returned.
-    pub(crate) fn last_bprof(&self, bfam: BrowserFamily) -> Result<Option<PathBuf>> {
-        match Path::new(&self.bprof_dir()).try_exists() {
-            Ok(flag) => {
-                if !flag {
-                    return Err(WdaError::BrowserProfileRootNotFound);
-                }
-            }
-            Err(_) => {
-                return Err(WdaError::Buggy);
-            }
-        }
-
-        let prefix = bfam.profile_prefix();
-
-        let mut dirs = Vec::<OsString>::new();
-        #[allow(clippy::manual_flatten)]
-        for may_entry in fs::read_dir(self.bprof_dir()).expect("buggy") {
-            if let Ok(entry) = may_entry {
-                let fname = entry.file_name().into_string().expect("bug");
-                if &fname[0..3] == prefix {
-                    dirs.push(entry.file_name());
-                }
-            }
-        }
-
-        #[allow(clippy::len_zero)]
-        if dirs.len() > 0 {
-            dirs.sort();
-
-            Ok(Some(
-                self.home_pbuf
-                    .join(self.data_root)
-                    .join(self.sver)
-                    .join(self.bprof_dir)
-                    .join(dirs.last().expect("bug")),
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub(crate) fn find_bprof(
-        &self,
-        bfam: BrowserFamily,
-        bprof_id: &str,
-    ) -> Result<Option<PathBuf>> {
-        match Path::new(&self.bprof_dir()).try_exists() {
-            Ok(flag) => {
-                if !flag {
-                    return Err(WdaError::BrowserProfileRootNotFound);
-                }
-            }
-            Err(_) => {
-                return Err(WdaError::Buggy);
-            }
-        }
-
-        let prefix = bfam.profile_prefix();
-
-        let mut dir_found: Option<String> = None;
-
-        #[allow(clippy::manual_flatten)]
-        for may_entry in fs::read_dir(self.bprof_dir()).expect("buggy") {
-            if let Ok(entry) = may_entry {
-                let fname = entry.file_name().into_string().expect("bug");
-                if &fname[0..3] == prefix && &fname[3..] == bprof_id {
-                    dir_found = Some(fname);
-                }
-            }
-        }
-
-        if let Some(v) = dir_found {
-            Ok(Some(
-                self.home_pbuf
-                    .join(self.data_root)
-                    .join(self.sver)
-                    .join(self.bprof_dir)
-                    .join(v),
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-
-    ///
-    /// Get a existing lock name for browser profile.
+    /// Get a lock name for browser profile.
     ///
     /// Note that this does NOT do the lock job.
     pub(crate) fn bprof_sub_lock(&self, bfam: BrowserFamily, bprof_pbuf: &Path) -> Result<String> {
+        // use pathbuf last elem as lock name
         let lelem = bprof_pbuf.iter().last();
         if lelem.is_none() {
             return Err(WdaError::BrowserProfileRootNotFound);
@@ -558,14 +432,6 @@ impl WdaWorkingDir {
                     .join(lock_name),
             )
             .unwrap())
-    }
-
-    fn new_droot_lock(&self, lock_name: &str) -> Result<File> {
-        OpenOptions::new()
-            .create(true)
-            .write(true)
-            .open(self.home_pbuf.join(lock_name))
-            .map_err(|_| WdaError::Buggy)
     }
 
     fn new_lock_file(&self, lock_name: &str) -> Result<File> {
@@ -611,6 +477,31 @@ impl WdaWorkingDir {
             .join(self.data_root)
             .join(self.sver)
             .join(self.bprof_dir)
+    }
+
+    //WIP
+    fn pbuf_bprof_id(&self, bfam: BrowserFamily, s: &str) -> PathBuf {
+        self.home_pbuf
+            .join(self.data_root)
+            .join(self.sver)
+            .join(self.bprof_dir)
+            .join(format!("{}_{}", bfam.profile_prefix(), s))
+    }
+
+    //WIP
+    fn ensure_prof_dir_exist(&self) -> Result<()> {
+        match Path::new(&self.bprof_dir()).try_exists() {
+            Ok(flag) => {
+                if !flag {
+                    return Err(WdaError::BrowserProfileRootNotFound);
+                }
+            }
+            Err(_) => {
+                return Err(WdaError::Buggy);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -752,12 +643,40 @@ fn get_home_dir() -> String {
     "".to_owned()
 }
 
-// a cannot-fail operation
-fn create_wda_workdirs(
+fn lock_droot(home_path: &Path) -> Result<File> {
+    let f = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(home_path.join(".wda.lock"))
+        .map_err(|_| WdaError::Buggy)?;
+
+    lock::acquire(&f).expect("bug");
+
+    Ok(f)
+}
+
+///
+/// Prepare essential data for Wda instances.
+///
+/// Typically it consists of following steps:
+///
+/// 1. All well-organized directories are in place.
+/// 2. Ensure that plock file is not corrupt.
+/// 3. Ensure a reasonable number of Wda instances do not interfere with
+/// each other.
+///
+/// After prepared, Wda instances can be readily created, and be
+/// multi-threadly safely used.
+///
+/// Note that this is a cannot-fail operation.
+///
+/// Note: if `reset` is `true`, work dir would be removed forcibly before
+/// prepare. Use with caution!
+pub(crate) fn prepare_wdir(
     reset: bool,
     predef_home: Option<&'static str>,
     predef_root: Option<&'static str>,
-) -> WdaWorkingDir {
+) -> Result<WdaWorkingDir> {
     let real_home = get_home_dir();
 
     // DOUBLE CHECK!!!
@@ -780,12 +699,17 @@ fn create_wda_workdirs(
 
     let home_pbuf = PathBuf::new().join(home_dir);
 
+    // ---
+    let lck = lock_droot(home_pbuf.as_path()).expect("lock bug");
+
     if reset {
         #[allow(clippy::redundant_pattern_matching)]
-        if let Err(_) = fs::remove_dir_all(
+        if let Err(_e) = fs::remove_dir_all(
             /* double check!!! */
             home_pbuf.join(data_root), /* double check!!! */
-        ) {}
+        ) {
+            dbgg!(_e);
+        }
     }
 
     // create itself and its all subs
@@ -796,7 +720,7 @@ fn create_wda_workdirs(
     fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(log_dir)).unwrap();
     fs::create_dir_all(home_pbuf.join(data_root).join(sver).join(bprof_dir)).unwrap();
 
-    WdaWorkingDir {
+    let wda_wdir = WdaWorkingDir {
         home_pbuf,
         data_root,
         sver,
@@ -805,38 +729,7 @@ fn create_wda_workdirs(
         log_dir,
         cache_dir,
         bprof_dir,
-    }
-}
-
-///
-/// Prepare essential data for Wda instances.
-///
-/// Typically it consists of following steps:
-///
-/// 1. All well-organized directories are in place.
-/// 2. Ensure that plock file is not corrupt.
-/// 3. Ensure a reasonable number of Wda instances do not interfere with
-/// each other.
-///
-/// After prepared, Wda instances can be readily created, and be
-/// multi-threadly safely used.
-///
-/// Note: if `reset` is `true`, work dir would be removed forcibly before
-/// prepare. Use with caution!
-pub(crate) fn prepare_wdir(
-    reset: bool,
-    predef_home: Option<&'static str>,
-    predef_root: Option<&'static str>,
-) -> Result<WdaWorkingDir> {
-    let wda_wdir = create_wda_workdirs(reset, predef_home, predef_root);
-
-    let droot_lock = wda_wdir.new_droot_lock(".wda.lock")?;
-
-    // ---
-    lock::acquire(&droot_lock).expect("bug");
-
-    // for testing purpose, simulate massive tasks on exclusive occupation
-    // sleep(Duration::from_secs(1));
+    };
 
     let mut plock;
 
@@ -851,7 +744,7 @@ pub(crate) fn prepare_wdir(
     // bprof lock
     let _ = wda_wdir.new_lock_file(LCK_BPROF)?;
 
-    lock::release(&droot_lock).expect("bug");
+    lock::release(&lck).expect("bug");
     // ---
 
     Ok(wda_wdir)
@@ -895,16 +788,11 @@ fn ensure_valid_plock(wdir: &WdaWorkingDir, plock: &str, default: u16) -> Result
 //       here is bc this is crate-public module
 
 #[cfg(test)]
-mod utst_singl_thread {
+mod utst_s_thread {
     use super::*;
 
     #[allow(non_snake_case)]
-    fn _0(
-        HOME_DIR: &'static str,
-        DATAROOT_DIR: &'static str,
-        TESTING_PREFIX: &'static str,
-        BFAM: BrowserFamily,
-    ) {
+    fn _0(HOME_DIR: &'static str, DATAROOT_DIR: &'static str, BFAM: BrowserFamily) {
         let wdir = prepare_wdir(
             true, /* means delete all */
             Some(HOME_DIR),
@@ -912,153 +800,156 @@ mod utst_singl_thread {
         )
         .expect("bug");
 
-        // is empty dir
-        assert_eq!(wdir.last_bprof(BFAM).expect("bug"), None);
-
-        // make 100 fresh ones
         for i in 0..100 {
-            let pbuf = wdir.fresh_bprof(BFAM).expect("bug");
-            let expected_pbuf = if i < 10 {
-                PathBuf::new()
-                    .join(wdir.bprof_dir())
-                    .join(format!("{}0{}", TESTING_PREFIX, i))
-            } else {
-                PathBuf::new()
-                    .join(wdir.bprof_dir())
-                    .join(format!("{}{}", TESTING_PREFIX, i))
-            };
-
-            // only predictable on single-thread env
-            assert_eq!(pbuf, expected_pbuf);
-            assert!(wdir.last_bprof(BFAM).expect("bug").is_some());
-            assert_eq!(wdir.last_bprof(BFAM).expect("bug").unwrap(), expected_pbuf);
+            let bprof_id = i.to_string();
+            let pbuf = wdir.pbuf_bprof_id(BFAM, &bprof_id);
+            assert!(!pbuf.try_exists().expect("bug"), "not created");
+            assert_eq!(wdir.find_bprof_id(BFAM, &bprof_id).expect("bug"), pbuf);
+            // assert!(pbuf.try_exists().expect("bug"), "created");
         }
-        assert_eq!(
-            wdir.last_bprof(BFAM).expect("bug"),
-            Some(
-                PathBuf::new()
-                    .join(wdir.bprof_dir())
-                    .join(format!("{}99", TESTING_PREFIX))
-            )
-        );
 
-        // make one more fresh, cause previous 99 removed
-        for _ in 0..1 {
-            let pbuf = wdir.fresh_bprof(BFAM).expect("bug");
-            assert_eq!(
-                pbuf,
-                PathBuf::new()
-                    .join(wdir.bprof_dir())
-                    .join(format!("{}00", TESTING_PREFIX))
-            );
+        let mut total = 0;
+        for may_entry in fs::read_dir(wdir.bprof_dir()).expect("bug") {
+            if let Ok(entry) = may_entry {
+                let fname = entry.file_name().into_string().expect("bug");
+                if fname.contains(BFAM.profile_prefix()) {
+                    total += 1;
+                } else {
+                    assert!(false);
+                }
+            }
         }
-        assert_eq!(
-            wdir.last_bprof(BFAM).expect("bug"),
-            Some(
-                PathBuf::new()
-                    .join(wdir.bprof_dir())
-                    .join(format!("{}00", TESTING_PREFIX))
-            )
-        );
+        assert_eq!(total, 100);
     }
 
     #[test]
-    #[cfg(feature = "firefox")]
     fn fox() {
-        _0("/tmp", ".tstwda1", "fox", BrowserFamily::Firefox);
+        _0("/tmp", ".tstwda1", BrowserFamily::Firefox);
     }
 
     #[test]
     #[cfg(feature = "chromium")]
     fn chr() {
-        _0("/tmp", ".tstwda2", "chr", BrowserFamily::Chromium);
+        _0("/tmp", ".tstwda2", BrowserFamily::Chromium);
     }
 }
 
 #[cfg(test)]
-mod utst_multi_thread {
+mod utst_m_thread {
     use super::*;
 
     #[allow(non_snake_case)]
-    fn _0(
-        _THREAD_ID: &str,
-        HOME_DIR: &'static str,
-        DATAROOT_DIR: &'static str,
-        BFAM: BrowserFamily,
-        TIMES: usize,
-    ) {
-        let wdir = prepare_wdir(false, Some(HOME_DIR), Some(DATAROOT_DIR)).expect("bug");
+    fn _0(HOME_DIR: &'static str, DATAROOT_DIR: &'static str, BFAM: BrowserFamily) {
+        let wdir = prepare_wdir(
+            true, /* means delete all */
+            Some(HOME_DIR),
+            Some(DATAROOT_DIR),
+        )
+        .expect("bug");
 
-        // could be none or some
-        let may_last_profile = wdir.last_bprof(BFAM);
-        assert!(may_last_profile.is_ok());
-        let last_profile = may_last_profile.unwrap();
-        assert!(last_profile.is_some() || last_profile.is_none());
-
-        // make N fresh ones
-        for _i in 0..TIMES {
-            let _res = wdir.fresh_bprof(BFAM).expect("bug");
-            // dbg!((THREAD_ID, i, res));
+        for i in 0..100 {
+            let bprof_id = i.to_string();
+            let pbuf = wdir.pbuf_bprof_id(BFAM, &bprof_id);
+            // assert!(!pbuf.try_exists().expect("bug"), "not created");
+            assert_eq!(wdir.find_bprof_id(BFAM, &bprof_id).expect("bug"), pbuf);
+            // assert!(pbuf.try_exists().expect("bug"), "created");
         }
+
+        // not necessarily 100 at the point of time
+        // assert_eq!(total, 100);
     }
 
     #[test]
     #[cfg(feature = "firefox")]
     fn fox() {
-        // test fresh_bprof's multi-threaded safety
-
-        let wdir = prepare_wdir(
-            true, /* means delete all */
-            Some("/tmp"),
-            Some(".tstwda3"),
-        )
-        .expect("bug");
-
         let th1 = std::thread::spawn(|| {
-            _0("th1", "/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
         });
+
         let th2 = std::thread::spawn(|| {
-            _0("th2", "/tmp", ".tstwda3", BrowserFamily::Firefox, 60);
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
         });
 
-        th1.join().unwrap();
-        th2.join().unwrap();
+        let th3 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
+        });
 
-        let last_profile = wdir.last_bprof(BrowserFamily::Firefox).expect("bug");
-        assert!(last_profile.is_some());
-        assert_eq!(
-            last_profile.unwrap(),
-            PathBuf::new().join(wdir.bprof_dir()).join("fox19") // 120-100
-        );
+        let th4 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
+        });
+
+        let th5 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
+        });
+
+        let th6 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
+        });
+
+        let th7 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
+        });
+
+        let th8 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda3", BrowserFamily::Firefox);
+        });
+
+        th1.join().expect("bug");
+        th2.join().expect("bug");
+        th3.join().expect("bug");
+        th4.join().expect("bug");
+        th5.join().expect("bug");
+        th6.join().expect("bug");
+        th7.join().expect("bug");
+        th8.join().expect("bug");
+
+        // after all threads done, it is 100
     }
 
     #[test]
     #[cfg(feature = "chromium")]
     fn chr() {
-        // test fresh_bprof's multi-threaded safety
-
-        let wdir = prepare_wdir(
-            true, /* means delete all */
-            Some("/tmp"),
-            Some(".tstwda4"),
-        )
-        .expect("bug");
-
         let th1 = std::thread::spawn(|| {
-            _0("th1", "/tmp", ".tstwda4", BrowserFamily::Chromium, 60);
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
         });
+
         let th2 = std::thread::spawn(|| {
-            _0("th2", "/tmp", ".tstwda4", BrowserFamily::Chromium, 60);
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
         });
 
-        th1.join().unwrap();
-        th2.join().unwrap();
+        let th3 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
+        });
 
-        let last_profile = wdir.last_bprof(BrowserFamily::Chromium).expect("bug");
-        assert!(last_profile.is_some());
-        assert_eq!(
-            last_profile.unwrap(),
-            PathBuf::new().join(wdir.bprof_dir()).join("chr19") // 120-100
-        );
+        let th4 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
+        });
+
+        let th5 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
+        });
+
+        let th6 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
+        });
+
+        let th7 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
+        });
+
+        let th8 = std::thread::spawn(|| {
+            _0("/tmp", ".tstwda4", BrowserFamily::Chromium);
+        });
+
+        th1.join().expect("bug");
+        th2.join().expect("bug");
+        th3.join().expect("bug");
+        th4.join().expect("bug");
+        th5.join().expect("bug");
+        th6.join().expect("bug");
+        th7.join().expect("bug");
+        th8.join().expect("bug");
+
+        // after all threads done, it is 100
     }
 }
