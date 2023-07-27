@@ -256,7 +256,11 @@ impl WebDrvAstn<GeckoDriver> {
                     capa.set_timeouts_script(tout);
                 }
                 WdaSett::BrowserProfileId(v) => {
-                    bprof_id = Some(v);
+                    if wdadata::is_valid_bprof_id(&v) {
+                        bprof_id = Some(v);
+                    } else {
+                        return Err(WdaError::InvalidBrowserProfileId);
+                    }
                 }
                 //
                 WdaSett::ProxyDnsSocks5 => {

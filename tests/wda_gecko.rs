@@ -221,6 +221,27 @@ mod itst {
         assert_eq!(all_profiles, vec!["profile-0", "profile-test-web-ui"]);
     }
 
+    #[test]
+    fn profile_id_3() {
+        // invalid profile id
+
+        let wda = WebDrvAstn::<DRV>::new(vec![
+            WdaSett::NoGui,
+            WdaSett::BrowserProfileId("profile-1_".into()),
+        ]);
+
+        if let Err(err) = wda {
+            match err {
+                WdaError::InvalidBrowserProfileId => {}
+                _e => {
+                    assert!(false);
+                }
+            }
+        } else {
+            assert!(false);
+        }
+    }
+
     fn socks5_proxy_from_env() -> String {
         let pxy = if let Ok(v) = std::env::var("SOCKS5_PROXY") {
             v

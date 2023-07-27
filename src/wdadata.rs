@@ -820,6 +820,30 @@ fn ensure_valid_plock(wdir: &WdaWorkingDir, plock: &str, default: u16) -> Result
     }
 }
 
+pub(crate) fn is_valid_bprof_id(s: &str) -> bool {
+    let bytes = s.as_bytes();
+
+    let mut ret = true;
+    for b in bytes {
+        match b {
+            b'a' | b'b' | b'c' | b'd' | b'e' | b'f' | b'g' | b'h' | b'i' | b'j' | b'k' | b'l'
+            | b'm' | b'n' | b'o' | b'p' | b'q' | b'r' | b's' | b't' | b'u' | b'v' | b'w' | b'x'
+            | b'y' | b'z' => {}
+            b'A' | b'B' | b'C' | b'D' | b'E' | b'F' | b'G' | b'H' | b'I' | b'J' | b'K' | b'L'
+            | b'M' | b'N' | b'O' | b'P' | b'Q' | b'R' | b'S' | b'T' | b'U' | b'V' | b'W' | b'X'
+            | b'Y' | b'Z' => {}
+            b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' => {}
+            b'-' => {}
+            _ => {
+                ret = false;
+                break;
+            }
+        }
+    }
+
+    ret
+}
+
 // unit tests //
 
 // note: these are not strictly unit ones, but integrated ones, placing them

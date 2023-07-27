@@ -32,6 +32,7 @@ pub enum WdaError {
     BrowserProfileRootNotFound,
     BrowserProfileSubNotFound,
     InvalidBrowserProfileSub,
+    InvalidBrowserProfileId,
     ExistProfileNotFound,
     ///
     /// Webdriver client is not ready for automation, element 0 is the original
