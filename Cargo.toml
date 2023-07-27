@@ -1,6 +1,6 @@
 [package]
 name = "wda"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Michael Lee <micl2e2@proton.me>"]
 edition = "2021"
 description = "Make web browser automation painless."
@@ -28,6 +28,7 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 winapi = { version = "0.3.9", features = ["fileapi", "std", "impl-default", "errhandlingapi"] }
 image = { version = "0.24.6", optional = true }
+cfg-if = "1.0.0"
 
 [dev-dependencies]
 regex = "1.8.4"

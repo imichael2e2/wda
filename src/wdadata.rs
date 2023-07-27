@@ -135,6 +135,23 @@ impl BrowserFamily {
 
         ret
     }
+
+    pub(crate) fn from_drvname(name: &str) -> Result<Self> {
+        if name.contains(
+            #[cfg(feature = "firefox")]
+            {
+                "geckodriver"
+            },
+            #[cfg(feature = "chromium")]
+            {
+                "chromedriver"
+            },
+        ) {
+            Ok(Self::Firefox)
+        } else {
+            Err(WdaError::RendNotSupported)
+        }
+    }
 }
 
 // WdaWorkingdir //
@@ -385,6 +402,27 @@ impl WdaWorkingDir {
         }
 
         Ok(pbuf)
+    }
+
+    ///
+    /// List all existing profile IDs for specific browser family.
+    pub(crate) fn existing_profiles(&self, bfam: BrowserFamily) -> Result<Vec<String>> {
+        self.ensure_prof_dir_exist()?;
+
+        let prefix = bfam.profile_prefix();
+
+        let mut ret = Vec::<String>::new();
+
+        for may_entry in fs::read_dir(self.bprof_dir()).expect("bug") {
+            if let Ok(entry) = may_entry {
+                let fname = entry.file_name().into_string().expect("bug");
+                if fname.len() > 4 && &fname[..3] == prefix {
+                    ret.push(String::from(&fname[4..]));
+                }
+            }
+        }
+
+        Ok(ret)
     }
 
     ///
@@ -788,7 +826,7 @@ fn ensure_valid_plock(wdir: &WdaWorkingDir, plock: &str, default: u16) -> Result
 //       here is bc this is crate-public module
 
 #[cfg(test)]
-mod utst_s_thread {
+mod utst_find_bprof_s_thr {
     use super::*;
 
     #[allow(non_snake_case)]
@@ -835,7 +873,7 @@ mod utst_s_thread {
 }
 
 #[cfg(test)]
-mod utst_m_thread {
+mod utst_find_bprof_m_thr {
     use super::*;
 
     #[allow(non_snake_case)]
@@ -951,5 +989,59 @@ mod utst_m_thread {
         th8.join().expect("bug");
 
         // after all threads done, it is 100
+    }
+}
+
+#[cfg(test)]
+mod utst_existing_profiles {
+    use super::*;
+
+    #[allow(non_snake_case)]
+    fn _0(HOME_DIR: &'static str, DATAROOT_DIR: &'static str, BFAM: BrowserFamily) {
+        let wdir = prepare_wdir(
+            true, /* means delete all */
+            Some(HOME_DIR),
+            Some(DATAROOT_DIR),
+        )
+        .expect("bug");
+
+        for i in 0..18 {
+            let bprof_id = i.to_string();
+            let pbuf = wdir.pbuf_bprof_id(BFAM, &bprof_id);
+            assert!(!pbuf.try_exists().expect("bug"), "not created");
+            assert_eq!(wdir.find_bprof_id(BFAM, &bprof_id).expect("bug"), pbuf);
+            // assert!(pbuf.try_exists().expect("bug"), "created");
+        }
+
+        let profiles = wdir.existing_profiles(BFAM).expect("bug");
+
+        // let assert_eq!(total, 100); // TODO
+
+        dbg!(&profiles);
+
+        assert!(profiles.contains(&String::from("0")));
+        assert!(profiles.contains(&String::from("1")));
+        assert!(profiles.contains(&String::from("2")));
+        assert!(profiles.contains(&String::from("3")));
+        assert!(profiles.contains(&String::from("4")));
+        assert!(profiles.contains(&String::from("5")));
+        assert!(profiles.contains(&String::from("6")));
+        assert!(profiles.contains(&String::from("7")));
+        assert!(profiles.contains(&String::from("8")));
+        assert!(profiles.contains(&String::from("9")));
+        assert!(profiles.contains(&String::from("10")));
+        assert!(profiles.contains(&String::from("11")));
+        assert!(profiles.contains(&String::from("12")));
+        assert!(profiles.contains(&String::from("13")));
+        assert!(profiles.contains(&String::from("14")));
+        assert!(profiles.contains(&String::from("15")));
+        assert!(profiles.contains(&String::from("16")));
+        assert!(profiles.contains(&String::from("17")));
+        assert!(!profiles.contains(&String::from("18")));
+    }
+
+    #[test]
+    fn fox() {
+        _0("/tmp", ".tstwda5", BrowserFamily::Firefox);
     }
 }

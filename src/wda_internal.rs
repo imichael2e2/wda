@@ -132,6 +132,13 @@ where
         Ok(&self.lck_bp[4..])
     }
 
+    ///
+    /// Get all existing browser profile IDs.
+    pub fn existing_profiles(&self) -> Result<Vec<String>> {
+        self.wdir
+            .existing_profiles(BrowserFamily::from_drvname(&self.rend_id)?)
+    }
+
     fn pick_port(&mut self) -> Result<()> {
         let work_dir = &self.wdir;
 
