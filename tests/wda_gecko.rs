@@ -190,6 +190,7 @@ mod itst {
 
         let got_profile1: String;
         let got_profile2: String;
+        let all_profiles: Vec<String>;
 
         let pxy = socks5_proxy_from_env();
 
@@ -212,10 +213,12 @@ mod itst {
             .expect("new wda");
 
             got_profile2 = wda.profile_id().expect("bug").to_string();
+            all_profiles = wda.existing_profiles().expect("bug");
         }
 
         assert_eq!(got_profile1, "profile-0");
         assert_eq!(got_profile2, "profile-test-web-ui");
+        assert_eq!(all_profiles, vec!["profile-0", "profile-test-web-ui"]);
     }
 
     fn socks5_proxy_from_env() -> String {
