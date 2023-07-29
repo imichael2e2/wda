@@ -1,6 +1,6 @@
 [package]
 name = "wda"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Michael Lee <micl2e2@proton.me>"]
 edition = "2021"
 description = "Make web browser automation painless."
