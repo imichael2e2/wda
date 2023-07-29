@@ -28,6 +28,11 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 winapi = { version = "0.3.9", features = ["fileapi", "std", "impl-default", "errhandlingapi"] }
 image = { version = "0.24.6", optional = true }
+curl = { version = "0.4.44", default-features = false, features = ["static-curl", "rustls"] }
+# curl = { version = "0.4.44", default-features = false, features = ["static-curl","ssl", "static-ssl"] }
+flate2 = "1.0.26"
+tar = "0.4.39"
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 regex = "1.8.4"

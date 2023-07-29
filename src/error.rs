@@ -45,6 +45,7 @@ pub enum WdaError {
     InvalidUrl,
     UnsupportedAutomation,
     Buggy,
+    BugFound(u16),
 }
 
 pub type Result<T> = core::result::Result<T, WdaError>;

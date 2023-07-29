@@ -15,7 +15,8 @@ use crate::error::WdaError;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::SeekFrom;
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,7 +24,13 @@ use std::process::Stdio;
 
 use std::fs;
 use std::fs::create_dir_all;
+use std::fs::Permissions;
+use std::io;
 
+use flate2::bufread;
+use tar::Archive;
+
+use crate::error::WdaError::BugFound;
 // lock //
 
 #[cfg(target_family = "unix")]
@@ -137,17 +144,10 @@ impl BrowserFamily {
     }
 
     pub(crate) fn from_drvname(name: &str) -> Result<Self> {
-        if name.contains(
-            #[cfg(feature = "firefox")]
-            {
-                "geckodriver"
-            },
-            #[cfg(feature = "chromium")]
-            {
-                "chromedriver"
-            },
-        ) {
+        if name.contains("geckodriver") {
             Ok(Self::Firefox)
+        } else if name.contains("chromedriver") {
+            Ok(Self::Chromium)
         } else {
             Err(WdaError::RendNotSupported)
         }
@@ -188,7 +188,286 @@ impl WdaWorkingDir {
         Command::new(self.rend_file_pbuf(rend_id))
     }
 
+    pub(crate) fn dl_geckodrv(&self, rend_id: &str, dl_proxy: Option<&str>) -> Result<()> {
+        // if exists, we are done
+        if let Ok(flag) = Path::new(&self.rend_file_pbuf(rend_id)).try_exists() {
+            if flag {
+                return Ok(());
+            }
+        } else {
+            return Err(WdaError::Buggy);
+        }
+
+        let mut map = HashMap::<&str, Vec<&str>>::new();
+
+        // geckodriver
+        map.insert(
+        "geckodriver-v0.32.2-linux64",
+        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-linux64.tar.gz","geckodriver-v0.32.2-linux64.tar.gz","geckodriver"],
+    );
+        map.insert(
+	    "geckodriver-v0.30.0-win64.exe",
+        vec![
+            "https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-win64.zip",
+            "geckodriver-v0.30.0-win64.zip",
+            "geckodriver.exe",
+        ],
+    );
+        map.insert(
+        "geckodriver-v0.32.2-macos",
+        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-macos.tar.gz","geckodriver-v0.32.2-macos.tar.gz","geckodriver"],
+	);
+
+        let vals = map.get(rend_id);
+        if vals.is_none() {
+            return Err(WdaError::RendNotSupported);
+        }
+        let vals = vals.unwrap();
+        let url = vals[0];
+        let tarfile = vals[1];
+        let rend_file_in_tar = vals[2];
+
+        // ------
+        let lck = self.try_lock(LCK_DLREND)?;
+
+        #[allow(unused_assignments)]
+        let mut operation_failed = true;
+
+        // curl //
+        self.fetch_tar(url, tarfile, dl_proxy)?;
+
+        // gunzip //
+        let mut dled_tgz = File::open(self.cache_file_pbuf(tarfile)).map_err(|_e| {
+            dbgg!(_e);
+            BugFound(191)
+        })?;
+        let mut dl_tar = File::create(self.cache_file_pbuf(&format!("{rend_id}.tar")))
+            .map_err(|_| BugFound(192))?;
+        let mut decoder = bufread::GzDecoder::new(io::BufReader::new(dled_tgz));
+        io::copy(&mut decoder, &mut dl_tar).map_err(|_| BugFound(193))?;
+        drop(dl_tar);
+        // drop(dled_tgz);
+
+        // tar //
+        let dled_tar =
+            File::open(self.cache_file_pbuf(&format!("{rend_id}.tar"))).map_err(|_e| {
+                dbgg!(_e);
+                BugFound(501)
+            })?;
+        let mut a = Archive::new(&dled_tar);
+        let out_file = self.rend_file_pbuf(rend_id);
+        use std::os::unix::fs::PermissionsExt;
+        for file in a.entries().map_err(|_e| {
+            dbgg!(_e);
+            BugFound(501)
+        })? {
+            let mut file = file.map_err(|_e| {
+                dbgg!(_e);
+                BugFound(503)
+            })?;
+            let path_f = file.header().path().map_err(|_e| {
+                dbgg!(_e);
+                BugFound(504)
+            })?;
+
+            if path_f.as_os_str() == "geckodriver" {
+                let path_f = path_f.to_str().ok_or(BugFound(505))?;
+                let size_f = file.header().size().map_err(|_e| {
+                    dbgg!(_e);
+                    BugFound(506)
+                })?;
+                let mode_f = file.header().mode().map_err(|_e| {
+                    dbgg!(_e);
+                    BugFound(507)
+                })?;
+
+                if mode_f & 0b001001001 != 0 {
+                    let mut output = File::create(out_file.as_path()).map_err(|_e| {
+                        dbgg!(_e);
+                        BugFound(508)
+                    })?;
+                    // add x perm
+                    output
+                        .set_permissions(Permissions::from_mode(0b111101101))
+                        .map_err(|_e| {
+                            dbgg!(_e);
+                            BugFound(509)
+                        })?;
+
+                    let mut nread = usize::MAX;
+                    const BUFSIZE: usize = 4096;
+                    let mut buf = [0u8; BUFSIZE];
+
+                    while nread != 0 {
+                        nread = file.read(&mut buf).map_err(|_e| {
+                            dbgg!(_e);
+                            BugFound(510)
+                        })?;
+                        output.write_all(&buf[..nread]).map_err(|_e| {
+                            dbgg!(_e);
+                            BugFound(511)
+                        })?;
+                    }
+
+                    operation_failed = false;
+                }
+            }
+        }
+        drop(a);
+        drop(dled_tar);
+
+        self.try_unlock(LCK_DLREND)?;
+        // ------
+
+        if operation_failed {
+            Err(WdaError::Buggy)
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn download(&self, rend_id: &str, dl_proxy: Option<&str>) -> Result<()> {
+        // determine server by rend_id at run time, this is totally find for WorkingDir
+        if rend_id.contains("gecko") {
+            self.dl_geckodrv(rend_id, dl_proxy)
+        } else if rend_id.contains("chrome") {
+            self.dl_chromedrv(rend_id, dl_proxy)
+        } else {
+            Err(BugFound(40))
+        }
+    }
+
+    fn fetch_tar(&self, url: &str, tar_name: &str, dl_proxy: Option<&str>) -> Result<()> {
+        let mut dl_tgz =
+            File::create(self.cache_file_pbuf(tar_name)).map_err(|_| WdaError::BugFound(181))?;
+        let mut easy = curl::easy::Easy::new();
+        easy.url(url).map_err(|_| WdaError::BugFound(182))?;
+        easy.follow_location(true).map_err(|_| BugFound(183))?;
+        easy.follow_location(true).map_err(|_| BugFound(184))?;
+        easy.ssl_verify_peer(false).map_err(|_| BugFound(185))?;
+        if let Some(v) = dl_proxy {
+            if v.len() > 0 {
+                easy.proxy(&format!("socks5://{v}")).unwrap();
+            }
+        }
+        let mut transfer = easy.transfer();
+        transfer
+            .write_function(|data| {
+                let mut received: &[u8] = data.clone();
+                let mut nread = usize::MAX;
+                let mut buf = [0u8; 4096];
+                while nread != 0 {
+                    nread = received.read(&mut buf).unwrap();
+                    dl_tgz.write(&buf[0..nread]).unwrap();
+                }
+                Ok(data.len())
+            })
+            .map_err(|_| BugFound(186))?;
+        transfer.perform().map_err(|_e| {
+            dbgg!(_e);
+            BugFound(187)
+        })?;
+        // drop(dl_tgz); FIXTHEM: curl-rs not allow move even after perform()
+
+        Ok(())
+    }
+
+    pub(crate) fn dl_chromedrv(&self, rend_id: &str, dl_proxy: Option<&str>) -> Result<()> {
+        // if exists, we are done
+        if let Ok(flag) = Path::new(&self.rend_file_pbuf(rend_id)).try_exists() {
+            if flag {
+                return Ok(());
+            }
+        } else {
+            return Err(WdaError::Buggy);
+        }
+
+        let mut map = HashMap::<&str, Vec<&str>>::new();
+
+        // chromedriver
+        map.insert(
+            "chromedriver-v114-linux64",
+            vec![
+            "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip"
+                ,
+            "chromedriver-v114-linux64.zip",
+            "chromedriver",
+        ],
+        );
+        map.insert(
+            "chromedriver-v114-win32.exe",
+            vec![
+                "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip",
+                "chromedriver-v112-win32.zip",
+                "chromedriver.exe",
+            ],
+        );
+        map.insert(
+            "chromedriver-v114-mac64",
+            vec![
+                "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip",
+                "chromedriver-v114-mac64.zip",
+                "chromedriver",
+            ],
+        );
+
+        let vals = map.get(rend_id);
+        if vals.is_none() {
+            return Err(WdaError::RendNotSupported);
+        }
+        let vals = vals.unwrap();
+        let url = vals[0];
+        let tarfile = vals[1];
+        let rend_file_in_tar = vals[2];
+
+        // ------
+        let _lck = self.try_lock(LCK_DLREND)?;
+
+        #[allow(unused_assignments)]
+        let mut operation_failed = true;
+
+        // curl //
+        self.fetch_tar(url, tarfile, dl_proxy)?;
+
+        // zip //
+        let dled_tar = File::open(self.cache_file_pbuf(tarfile)).map_err(|_| BugFound(201))?;
+        let mut a = zip::ZipArchive::new(dled_tar).map_err(|_| BugFound(202))?;
+
+        for i in 0..a.len() {
+            let mut infile = a.by_index(i).map_err(|_| BugFound(203))?;
+            if let None = infile.enclosed_name() {
+                continue;
+            }
+            let inname = infile.enclosed_name().unwrap();
+
+            if inname.as_os_str().to_str().unwrap() == "chromedriver" {
+                let pbuf_outfile = self.rend_file_pbuf(rend_id);
+                let mut f_outfile = File::create(&pbuf_outfile).map_err(|_| BugFound(204))?;
+                io::copy(&mut infile, &mut f_outfile).map_err(|_| BugFound(205))?;
+
+                use std::os::unix::fs::PermissionsExt;
+
+                // add x perm
+                if let Some(mode) = infile.unix_mode() {
+                    f_outfile
+                        .set_permissions(Permissions::from_mode(0b111101101))
+                        .map_err(|_| BugFound(206))?;
+                }
+                operation_failed = false;
+            }
+        }
+
+        self.try_unlock(LCK_DLREND)?;
+        // ------
+
+        if operation_failed {
+            Err(BugFound(30))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn download_old(&self, rend_id: &str, dl_proxy: Option<&str>) -> Result<()> {
         // if exists, we are done
         if let Ok(flag) = Path::new(&self.rend_file_pbuf(rend_id)).try_exists() {
             if flag {
@@ -398,7 +677,8 @@ impl WdaWorkingDir {
         let pbuf = self.pbuf_bprof_id(bfam, bprof_id);
 
         if !is_exist {
-            create_dir_all(pbuf.clone()).expect("bug");
+            let _ignore_me = create_dir_all(pbuf.clone());
+            // FIXME: sometimes this return AlreadyExists?
         }
 
         Ok(pbuf)
@@ -500,6 +780,13 @@ impl WdaWorkingDir {
             .join(self.sver)
             .join(self.rend_dir)
             .join(fname)
+    }
+
+    fn pbuf_rend_dir(&self) -> PathBuf {
+        self.home_pbuf
+            .join(self.data_root)
+            .join(self.sver)
+            .join(self.rend_dir)
     }
 
     fn lock_file_pbuf(&self, fname: &str) -> PathBuf {
@@ -849,6 +1136,7 @@ pub(crate) fn is_valid_bprof_id(s: &str) -> bool {
 // note: these are not strictly unit ones, but integrated ones, placing them
 //       here is bc this is crate-public module
 
+// tstwda1 2
 #[cfg(test)]
 mod utst_find_bprof_s_thr {
     use super::*;
@@ -896,6 +1184,7 @@ mod utst_find_bprof_s_thr {
     }
 }
 
+// tstwda3 4
 #[cfg(test)]
 mod utst_find_bprof_m_thr {
     use super::*;
@@ -1016,6 +1305,7 @@ mod utst_find_bprof_m_thr {
     }
 }
 
+// tstwda5
 #[cfg(test)]
 mod utst_existing_profiles {
     use super::*;
@@ -1067,5 +1357,156 @@ mod utst_existing_profiles {
     #[test]
     fn fox() {
         _0("/tmp", ".tstwda5", BrowserFamily::Firefox);
+    }
+}
+
+// tstwda6 7
+#[cfg(test)]
+mod utst_dl {
+    // WDA_DIR will be deleted at the beginning, and different vendor use different WDA_DIR,
+    // bc after each deletion, the existing exclusive lock will be gone
+
+    use super::*;
+
+    fn socks5_proxy_from_env() -> Option<String> {
+        if let Ok(v) = std::env::var("SOCKS5_PROXY") {
+            Some(String::from(v))
+        } else {
+            None
+        }
+    }
+
+    #[allow(non_snake_case)]
+    fn _0(
+        HOME_DIR: &'static str,
+        DATAROOT_DIR: &'static str,
+        BFAM: BrowserFamily,
+        REND_ID: &str,
+        VER_STR_MUST_HAVE: Vec<&str>,
+    ) {
+        let wdir = prepare_wdir(
+            true, /* true means delete all */
+            Some(HOME_DIR),
+            Some(DATAROOT_DIR),
+        )
+        .expect("bug");
+
+        wdir.download(REND_ID, socks5_proxy_from_env().as_deref())
+            .expect("bug");
+
+        let mut f_bin = File::open(wdir.rend_file_pbuf(REND_ID)).unwrap();
+
+        // luckly, geckodriver and chromedriver all support --version option
+        let mut stdx_output = Command::new(wdir.rend_file_pbuf(REND_ID))
+            .args(["--version"])
+            .output()
+            .unwrap();
+
+        let ver_out = String::from_utf8_lossy(&stdx_output.stdout);
+        for s in VER_STR_MUST_HAVE {
+            assert!(
+                ver_out.contains(s),
+                "{} verstr must contain {}, actual:{}",
+                REND_ID,
+                s,
+                ver_out
+            );
+        }
+    }
+
+    #[test]
+    fn fox() {
+        _0(
+            "/tmp",
+            ".tstwda6",
+            BrowserFamily::Firefox,
+            "geckodriver-v0.32.2-linux64",
+            vec!["geckodriver", "0.32.2"],
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "chromium")]
+    fn chr() {
+        _0(
+            "/tmp",
+            ".tstwda7",
+            BrowserFamily::Chromium,
+            "chromedriver-v114-linux64",
+            vec!["ChromeDriver 114"],
+        );
+    }
+}
+
+// tstwda8
+#[cfg(test)]
+mod utst_dl2 {
+    // WDA_DIR will be not deleted at the beginning, and different vendor now can use same WDA_DIR,
+    // this will challenge data race(lock validality)
+
+    use super::*;
+
+    fn socks5_proxy_from_env() -> Option<String> {
+        if let Ok(v) = std::env::var("SOCKS5_PROXY") {
+            Some(String::from(v))
+        } else {
+            None
+        }
+    }
+
+    #[allow(non_snake_case)]
+    fn _0(
+        HOME_DIR: &'static str,
+        DATAROOT_DIR: &'static str,
+        BFAM: BrowserFamily,
+        REND_ID: &str,
+        VER_STR_MUST_HAVE: Vec<&str>,
+    ) {
+        let wdir = prepare_wdir(false, Some(HOME_DIR), Some(DATAROOT_DIR)).expect("bug");
+
+        wdir.download(REND_ID, socks5_proxy_from_env().as_deref())
+            .expect("bug");
+
+        let mut f_bin = File::open(wdir.rend_file_pbuf(REND_ID)).unwrap();
+
+        // luckly, geckodriver and chromedriver all support --version option
+        let mut stdx_output = Command::new(wdir.rend_file_pbuf(REND_ID))
+            .args(["--version"])
+            .output()
+            .unwrap();
+
+        let ver_out = String::from_utf8_lossy(&stdx_output.stdout);
+        for s in VER_STR_MUST_HAVE {
+            assert!(
+                ver_out.contains(s),
+                "{} verstr must contain {}, actual:{}",
+                REND_ID,
+                s,
+                ver_out
+            );
+        }
+    }
+
+    #[test]
+    fn fox() {
+        _0(
+            "/tmp",
+            ".tstwda8",
+            BrowserFamily::Firefox,
+            "geckodriver-v0.32.2-linux64",
+            vec!["geckodriver", "0.32.2"],
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "chromium")]
+    fn chr() {
+        _0(
+            "/tmp",
+            ".tstwda8",
+            BrowserFamily::Chromium,
+            "chromedriver-v114-linux64",
+            vec!["ChromeDriver 114"],
+        );
     }
 }

@@ -61,7 +61,7 @@ mod itst {
             let wda = WebDrvAstn::<DRV>::new(vec![
                 WdaSett::PrepareUseSocksProxy(pxy.clone().into()),
                 WdaSett::NoGui,
-                WdaSett::ProfileId("profile-test-web-ui".into()),
+                WdaSett::BrowserProfileId("profile-test-web-ui".into()),
             ])
             .expect("new wda");
 
