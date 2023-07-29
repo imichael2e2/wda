@@ -430,11 +430,20 @@ impl WdaWorkingDir {
         self.fetch_tar(url, tarfile, dl_proxy)?;
 
         // zip //
-        let dled_tar = File::open(self.cache_file_pbuf(tarfile)).map_err(|_| BugFound(201))?;
-        let mut a = zip::ZipArchive::new(dled_tar).map_err(|_| BugFound(202))?;
+        let dled_tar = File::open(self.cache_file_pbuf(tarfile)).map_err(|_e| {
+            dbgg!(_e);
+            BugFound(201)
+        })?;
+        let mut a = zip::ZipArchive::new(dled_tar).map_err(|_e| {
+            dbgg!(_e);
+            BugFound(202)
+        })?;
 
         for i in 0..a.len() {
-            let mut infile = a.by_index(i).map_err(|_| BugFound(203))?;
+            let mut infile = a.by_index(i).map_err(|_e| {
+                dbgg!(_e);
+                BugFound(203)
+            })?;
             if let None = infile.enclosed_name() {
                 continue;
             }
@@ -442,8 +451,14 @@ impl WdaWorkingDir {
 
             if inname.as_os_str().to_str().unwrap() == "chromedriver" {
                 let pbuf_outfile = self.rend_file_pbuf(rend_id);
-                let mut f_outfile = File::create(&pbuf_outfile).map_err(|_| BugFound(204))?;
-                io::copy(&mut infile, &mut f_outfile).map_err(|_| BugFound(205))?;
+                let mut f_outfile = File::create(&pbuf_outfile).map_err(|_e| {
+                    dbgg!(_e);
+                    BugFound(204)
+                })?;
+                io::copy(&mut infile, &mut f_outfile).map_err(|_e| {
+                    dbgg!(_e);
+                    BugFound(205)
+                })?;
 
                 use std::os::unix::fs::PermissionsExt;
 
@@ -451,7 +466,10 @@ impl WdaWorkingDir {
                 if let Some(mode) = infile.unix_mode() {
                     f_outfile
                         .set_permissions(Permissions::from_mode(0b111101101))
-                        .map_err(|_| BugFound(206))?;
+                        .map_err(|_e| {
+                            dbgg!(_e);
+                            BugFound(206)
+                        })?;
                 }
                 operation_failed = false;
             }
@@ -462,175 +480,6 @@ impl WdaWorkingDir {
 
         if operation_failed {
             Err(BugFound(30))
-        } else {
-            Ok(())
-        }
-    }
-
-    pub(crate) fn download_old(&self, rend_id: &str, dl_proxy: Option<&str>) -> Result<()> {
-        // if exists, we are done
-        if let Ok(flag) = Path::new(&self.rend_file_pbuf(rend_id)).try_exists() {
-            if flag {
-                return Ok(());
-            }
-        } else {
-            return Err(WdaError::Buggy);
-        }
-
-        check_dl_tools()?;
-
-        let mut map = HashMap::<&str, Vec<&str>>::new();
-
-        // geckodriver
-        map.insert(
-        "geckodriver-v0.32.2-linux64",
-        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-linux64.tar.gz","geckodriver-v0.32.2-linux64.tar.gz","geckodriver"],
-    );
-        map.insert(
-	    "geckodriver-v0.30.0-win64.exe",
-        vec![
-            "https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-win64.zip",
-            "geckodriver-v0.30.0-win64.zip",
-            "geckodriver.exe",
-        ],
-    );
-        map.insert(
-        "geckodriver-v0.32.2-macos",
-        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-macos.tar.gz","geckodriver-v0.32.2-macos.tar.gz","geckodriver"],
-	);
-
-        // chromedriver
-        map.insert(
-            "chromedriver-v114-linux64",
-            vec![
-            "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip"
-                ,
-            "chromedriver-v114-linux64.zip",
-            "chromedriver",
-        ],
-        );
-        map.insert(
-            "chromedriver-v114-win32.exe",
-            vec![
-                "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip",
-                "chromedriver-v112-win32.zip",
-                "chromedriver.exe",
-            ],
-        );
-        map.insert(
-            "chromedriver-v114-mac64",
-            vec![
-                "https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip",
-                "chromedriver-v114-mac64.zip",
-                "chromedriver",
-            ],
-        );
-
-        let vals = map.get(rend_id);
-        if vals.is_none() {
-            return Err(WdaError::RendNotSupported);
-        }
-        let vals = vals.unwrap();
-        let url = vals[0];
-        let tarfile = vals[1];
-        let rend_file_in_tar = vals[2];
-
-        dbgmsg!("downloading '{}'...", rend_id);
-
-        let _lck = self.try_lock(LCK_DLREND)?;
-
-        #[allow(unused_assignments)]
-        let mut operation_failed = true;
-
-        // Download //
-        let mut curl_args = vec!["--location"];
-        if let Some(v) = dl_proxy {
-            curl_args.push("--socks5");
-            curl_args.push(v);
-        }
-        curl_args.push(url);
-        curl_args.push("--output");
-        let dest_tar = &self
-            .cache_file_pbuf(tarfile)
-            .into_os_string()
-            .into_string()
-            .unwrap();
-        curl_args.push(dest_tar);
-        let status = Command::new("curl")
-            .args(curl_args)
-            .stdout(self.zero_log(&format!("fetch-out.{}.log", rend_id)))
-            .stderr(self.zero_log(&format!("fetch-err.{}.log", rend_id)))
-            .status()
-            .expect("failed to download ");
-
-        // Extract //
-        if !status.success() {
-            let excode = status.code().unwrap();
-            return Err(WdaError::FetchWebDriver(excode));
-        }
-
-        let _status = if tarfile.contains(".tar.gz") {
-            Command::new("tar")
-                .args(["--extract", "--file", dest_tar, rend_file_in_tar])
-                .stdout(self.zero_log(&format!("tar-out.{}.log", rend_id)))
-                .stderr(self.zero_log(&format!("tar-err.{}.log", rend_id)))
-                .status()
-                .expect("failed to extract")
-        } else if tarfile.contains(".zip") {
-            Command::new("unzip")
-                .args([dest_tar, rend_file_in_tar])
-                .stdout(self.zero_log(&format!("extract-out.{}.log", rend_id)))
-                .stderr(self.zero_log(&format!("extract-err.{}.log", rend_id)))
-                .status()
-                .expect("failed to extract")
-        } else {
-            panic!("unsupported archive")
-        };
-
-        // Permit //
-
-        // permit before rename bc chmod on win cannot apply on any file path
-        // with '\', its bug
-        let status = Command::new("chmod")
-            .args(["+x", rend_file_in_tar])
-            .stdout(self.zero_log(&format!("permit-out.{}.log", rend_id)))
-            .stderr(self.zero_log(&format!("permit-err.{}.log", rend_id)))
-            .status()
-            .expect("permit");
-        if !status.success() {
-            let excode = status.code().unwrap();
-            return Err(WdaError::PermitWebDriver(excode));
-        }
-
-        // Rename //
-        let rend_file_renamed = self
-            .rend_file_pbuf(rend_id)
-            .into_os_string()
-            .into_string()
-            .unwrap();
-        if !status.success() {
-            let excode = status.code().unwrap();
-            return Err(WdaError::ExtractWebDriver(excode));
-        }
-        let status = Command::new("mv")
-            .args([rend_file_in_tar, &rend_file_renamed])
-            .stdout(self.zero_log(&format!("extract-out.{}.log", rend_id)))
-            .stderr(self.zero_log(&format!("extract-err.{}.log", rend_id)))
-            .status()
-            .expect("extract");
-        if !status.success() {
-            let excode = status.code().unwrap();
-            return Err(WdaError::PlaceWebDriver(excode));
-        }
-
-        // done //
-        dbgmsg!("downloading '{}'...done", rend_id);
-        operation_failed = false;
-
-        self.try_unlock(LCK_DLREND)?;
-
-        if operation_failed {
-            Err(WdaError::Buggy)
         } else {
             Ok(())
         }

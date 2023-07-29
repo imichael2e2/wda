@@ -935,7 +935,7 @@ mod utst_conc_init {
                             drop(wda);
 
                             // signal needs time to arrive its home
-                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
 
                             // this indicates rproc is actually None
                             assert_eq!(is_local_port_open(port_in_use), false, "{}", port_in_use);
