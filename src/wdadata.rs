@@ -290,10 +290,23 @@ impl WdaWorkingDir {
                 })?;
 
                 if mode_f & 0b001001001 != 0 {
-                    let mut output = File::create(out_file.as_path()).map_err(|_e| {
-                        dbgg!(_e);
-                        BugFound(508)
-                    })?;
+                    let mut may_created = File::create(out_file.as_path());
+
+                    if may_created.is_err() {
+                        // mitigate `ExecutableFileBusy` error
+                        let mut n_try = 10;
+                        while n_try > 0 || may_created.is_err() {
+                            std::thread::sleep(std::time::Duration::from_secs(10));
+                            n_try -= 1;
+                            may_created = File::create(out_file.as_path());
+                        }
+                        if may_created.is_err() {
+                            dbgg!((&out_file, may_created.unwrap_err()));
+                            return Err(BugFound(508));
+                        }
+                    }
+                    let mut output = may_created.unwrap();
+
                     // add x perm
                     output
                         .set_permissions(Permissions::from_mode(0b111101101))
@@ -372,8 +385,12 @@ impl WdaWorkingDir {
             })
             .map_err(|_| BugFound(186))?;
         transfer.perform().map_err(|_e| {
-            dbgg!(_e);
-            BugFound(187)
+            dbgg!(&_e);
+            if _e.is_couldnt_resolve_proxy() {
+                WdaError::InvalidSocks5Proxy
+            } else {
+                BugFound(187)
+            }
         })?;
         // drop(dl_tgz); FIXTHEM: curl-rs not allow move even after perform()
 

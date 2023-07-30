@@ -43,6 +43,7 @@ pub enum WdaError {
     Base64DataCorrupt(base64::DecodeSliceError),
     InternetConnection,
     InvalidUrl,
+    InvalidSocks5Proxy,
     UnsupportedAutomation,
     Buggy,
     BugFound(u16),
