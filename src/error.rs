@@ -13,6 +13,7 @@ use wdc::WdcError;
 
 #[derive(Debug)]
 pub enum WdaError {
+    BrowserBinaryNotFound,
     RendNotSupported,
     //
     FetchToolBuggy,

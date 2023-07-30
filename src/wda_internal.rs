@@ -223,6 +223,41 @@ impl WebDrvAstn<GeckoDriver> {
         Ok(wda)
     }
 
+    ///
+    /// Find Firefox binary location, prefer ESR version.
+    #[cfg(target_os = "linux")]
+    fn find_bin_path() -> Option<String> {
+        use std::os::unix::fs::PermissionsExt;
+        let mut ret: Option<String> = None;
+
+        let bin_file = "/usr/bin/firefox-esr";
+        if let Ok(f) = File::open(PathBuf::from(bin_file)) {
+            if let Ok(meta) = f.metadata() {
+                let mode = meta.permissions().mode();
+                // FIXME mode bits check should more specific
+                if mode & 0b001001001 != 0 {
+                    ret = Some(String::from(bin_file));
+                }
+            }
+        }
+
+        if ret.is_some() {
+            return ret;
+        }
+
+        let bin_file = "/usr/bin/firefox";
+        if let Ok(f) = File::open(PathBuf::from(bin_file)) {
+            if let Ok(meta) = f.metadata() {
+                let mode = meta.permissions().mode();
+                if mode & 0b001001001 != 0 {
+                    ret = Some(String::from(bin_file));
+                }
+            }
+        }
+
+        return ret;
+    }
+
     fn enable_rend_moz<'a>(&mut self, setts: Vec<WdaSett<'a>>) -> Result<()> {
         let mut dl_proxy: Option<Cow<'a, str>> = None;
         let mut is_drv_log_v = false;
@@ -309,7 +344,15 @@ impl WebDrvAstn<GeckoDriver> {
         capa.add_args("--profile");
         capa.add_args(&bprof_s);
 
-        // make sure rend connected and got session
+        // binary path
+        let may_bin_path = Self::find_bin_path();
+        if may_bin_path.is_none() {
+            return Err(WdaError::BrowserBinaryNotFound);
+        }
+        let bin_path = may_bin_path.unwrap();
+        capa.set_binary(&bin_path);
+
+        // make sure rend connected and create session
         let mut conn_try_times = 5000u16;
         let wait_time = 1; // nanos
         let mut goon_try = true;

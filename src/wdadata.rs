@@ -143,22 +143,20 @@ impl BrowserFamily {
         ret
     }
 
-    #[cfg(feature = "firefox")]
     pub(crate) fn from_drvname(name: &str) -> Result<Self> {
-        if name.contains("geckodriver") {
-            Ok(Self::Firefox)
-        } else {
-            Err(WdaError::RendNotSupported)
-        }
-    }
+        let ret: Self;
 
-    #[cfg(feature = "chromium")]
-    pub(crate) fn from_drvname(name: &str) -> Result<Self> {
-        if name.contains("chromedriver") {
-            Ok(Self::Chromium)
-        } else {
-            Err(WdaError::RendNotSupported)
+        #[cfg(feature = "firefox")]
+        if name.contains("geckodriver") {
+            return Ok(Self::Firefox);
         }
+
+        #[cfg(feature = "chromium")]
+        if name.contains("chromedriver") {
+            return Ok(Self::Chromium);
+        }
+
+        return Err(WdaError::RendNotSupported);
     }
 }
 
