@@ -212,6 +212,10 @@ impl WdaWorkingDir {
         vec!["https://github.com/mozilla/geckodriver/releases/download/v0.32.2/geckodriver-v0.32.2-linux64.tar.gz","geckodriver-v0.32.2-linux64.tar.gz","geckodriver"],
     );
         map.insert(
+        "geckodriver-v0.30.0-linux64",
+        vec!["https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz","geckodriver-v0.30.0-linux64.tar.gz","geckodriver"],
+    );
+        map.insert(
 	    "geckodriver-v0.30.0-win64.exe",
         vec![
             "https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-win64.zip",

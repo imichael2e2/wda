@@ -17,6 +17,8 @@ pub trait BasicAutomation {
 
     fn find_elems_by_css(&self, selector: &str) -> Result<Vec<String>>;
 
+    fn elem_send_keys(&self, eleid: &str, keys: &str) -> Result<()>;
+
     fn eval(&self, script: &str, args: Vec<&str>) -> Result<String>;
 
     fn eval_async(&self, script: &str, args: Vec<&str>) -> Result<String>;

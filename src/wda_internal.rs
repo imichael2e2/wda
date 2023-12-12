@@ -204,7 +204,7 @@ impl WebDrvAstn<GeckoDriver> {
             lck_bp: "_".to_string(),
             ppick: 0u16,
             #[cfg(target_os = "linux")]
-            rend_id: "geckodriver-v0.32.2-linux64".to_string(),
+            rend_id: "geckodriver-v0.30.0-linux64".to_string(),
             #[cfg(target_os = "windows")]
             rend_id: "geckodriver-v0.32.2-win64.exe".to_string(),
             #[cfg(target_os = "macos")]
@@ -651,6 +651,18 @@ where
 
         match wdc.find_elems_css(selector) {
             Ok(elem_ids) => Ok(elem_ids),
+            Err(_e) => {
+                dbgg!(&_e);
+                Err(WdaError::WdcFail(_e))
+            }
+        }
+    }
+
+    fn elem_send_keys(&self, eleid: &str, keys: &str) -> Result<()> {
+        let wdc = &self.wdc;
+
+        match wdc.elem_send_keys(eleid, keys) {
+            Ok(_) => Ok(()),
             Err(_e) => {
                 dbgg!(&_e);
                 Err(WdaError::WdcFail(_e))
