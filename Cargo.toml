@@ -42,3 +42,7 @@ rustdoc-args = ["--cfg", "doc_cfg"]
 
 [profile.release]
 strip = "symbols"
+
+[[bin]]
+name = "wdready"
+path = "src/wdready.rs"
